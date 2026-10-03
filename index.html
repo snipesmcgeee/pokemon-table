@@ -128,6 +128,19 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .9rem; }
 .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 6px; vertical-align: -2px; border: 1px solid var(--line); }
 .legend .start { background: var(--ok-soft); border-color: var(--ok); } .legend .blocked { background: var(--ink); opacity: .72; } .legend .ghost { border-style: dashed; border-color: var(--muted); }
+.board .cell.reach { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
+.turnbar { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--surface-2); }
+.chip.done { opacity: .5; }
+.rollnum { font-size: 1.3rem; color: var(--accent); }
+.yourturn { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; padding: 14px; border-radius: 12px; border: 2px solid var(--accent); background: var(--accent-soft); }
+.dice-card { max-width: 520px !important; }
+.dice-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; padding: 8px 0; }
+.die { width: 92px; height: 92px; border-radius: 18px; background: var(--surface-2); border: 2px solid var(--line); display: grid; place-items: center; align-content: center; gap: 2px; }
+.die small { color: var(--muted); font-weight: 700; } .die b { font-size: 2.2rem; line-height: 1; }
+.pips { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
+.pips button { min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 700; font-size: 1.05rem; cursor: pointer; }
+.pips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.total { font-size: 1.1rem; text-align: right; } .total b { font-size: 1.5rem; }
 details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
@@ -408,6 +421,111 @@ function boardOpts(c, mis, extra = {}) {
   };
 }
 
+// ---- Dice: one roll screen for every roll in the game ----
+// rollDice({ title, dice: [6, 12, 20], mode: 'app' | 'physical' }) opens the roll screen and
+// resolves to { values: [...], total } — or null if closed before rolling.
+//   App dice: the app rolls (using the browser's secure random numbers); once rolled it's final.
+//   Physical dice: the player taps what each real die shows (D100 gets a number box).
+const randInt = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
+function rollDice({ title, dice, mode }) {
+  return new Promise(resolve => {
+    const vals = dice.map(() => null);
+    let rolled = false, rolling = false;
+    const wrap = document.createElement('div'); wrap.className = 'modal open';
+    document.body.appendChild(wrap);
+    const close = res => { wrap.remove(); resolve(res); };
+    const full = () => vals.every(v => v);
+    const total = () => vals.reduce((a, b) => a + (b || 0), 0);
+    const draw = () => {
+      const app_ = mode === 'app';
+      wrap.innerHTML = `<div class="card stack dice-card">
+        <div class="row"><h2 style="margin:0">${esc(title)}</h2><div class="spacer"></div>${rolled ? '' : '<button class="icon-btn" data-x title="Close">✕</button>'}</div>
+        <div class="muted">${dice.map(d => 'D' + d).join(' + ')} · ${app_ ? 'App dice' : 'Physical dice — tap what each die shows'}</div>
+        ${app_ ? `<div class="dice-row">${dice.map((d, i) => `<div class="die"><small>D${d}</small><b data-face="${i}">${vals[i] ?? '?'}</b></div>`).join('')}</div>`
+          : dice.map((d, i) => `<div><div style="font-weight:650;margin-bottom:6px">D${d}</div>${d <= 20
+              ? `<div class="pips">${Array.from({ length: d }, (_, n) => `<button data-i="${i}" data-n="${n + 1}" aria-pressed="${vals[i] === n + 1}">${n + 1}</button>`).join('')}</div>`
+              : `<input type="number" inputmode="numeric" min="1" max="${d}" data-in="${i}" value="${vals[i] ?? ''}" placeholder="1–${d}">`}</div>`).join('')}
+        ${dice.length > 1 ? `<div class="total">Total <b id="diceTotal">${full() ? total() : '–'}</b></div>` : ''}
+        <div class="row"><div class="spacer"></div>${app_
+          ? (rolled ? `<button class="btn primary" data-ok>OK</button>` : `<button class="btn primary" data-roll ${rolling ? 'disabled' : ''}>🎲 Roll</button>`)
+          : `<button class="btn primary" data-ok ${full() ? '' : 'disabled'}>Use this roll</button>`}</div>
+      </div>`;
+      wrap.querySelector('[data-x]')?.addEventListener('click', () => close(null));
+      wrap.querySelector('[data-ok]')?.addEventListener('click', () => full() && close({ values: [...vals], total: total() }));
+      wrap.querySelectorAll('[data-n]').forEach(b => b.onclick = () => { vals[+b.dataset.i] = +b.dataset.n; draw(); });
+      wrap.querySelectorAll('[data-in]').forEach(inp => inp.oninput = () => {
+        const d = dice[+inp.dataset.in], v = parseInt(inp.value);
+        vals[+inp.dataset.in] = v >= 1 && v <= d ? v : null;
+        wrap.querySelector('[data-ok]').disabled = !full();
+        const t = wrap.querySelector('#diceTotal'); if (t) t.textContent = full() ? total() : '–';
+      });
+      wrap.querySelector('[data-roll]')?.addEventListener('click', () => {   // short tumble, then the real result
+        rolling = true; draw();
+        const faces = [...wrap.querySelectorAll('[data-face]')];
+        let n = 0; const spin = setInterval(() => {
+          faces.forEach((f, i) => f.textContent = 1 + randInt(dice[i]));
+          if (++n >= 10) { clearInterval(spin); dice.forEach((d, i) => vals[i] = 1 + randInt(d)); rolled = true; rolling = false; draw(); }
+        }, 60);
+      });
+    };
+    draw();
+  });
+}
+
+// ---- Turns on the map (Mission 0 chase) ----
+// mission.chase = { active, round, order: [playerIds], turn: position in order, roll: number|null, last: text }
+// Each round the order is shuffled. On your turn you roll a D4 and move up to that many hexes:
+// you may pass through other tokens but not blocked hexes, and you can't stop on a token.
+const NEIGHBORS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+function reachable(mis, pid, steps) {
+  const start = mis.tokens?.[pid]; if (!start) return new Set();
+  const cells = new Set(mis.cells), blocked = new Set(mis.blocked || []);
+  const seen = new Set([start]); let frontier = [start];
+  for (let s = 0; s < steps; s++) {
+    const next = [];
+    for (const k of frontier) {
+      const [q, r] = k.split(',').map(Number);
+      for (const [dq, dr] of NEIGHBORS) {
+        const n = (q + dq) + ',' + (r + dr);
+        if (!seen.has(n) && cells.has(n) && !blocked.has(n)) { seen.add(n); next.push(n); }
+      }
+    }
+    frontier = next;
+  }
+  seen.delete(start);
+  return new Set([...seen].filter(k => canStand(mis, k, pid)));
+}
+const shuffle = list => { const a = [...list]; for (let i = a.length - 1; i > 0; i--) { const j = randInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const nameOf = (c, pid) => (c.players || []).find(p => p.id === pid)?.name || '?';
+const stillChasing = (mis, found, pid) => !!mis.tokens?.[pid] && Object.values(found).filter(p => p === pid).length < 2;
+function advanceTurn(c, mis, found) {   // the changes that hand the turn to the next player
+  const ch = mis.chase, ok = pid => stillChasing(mis, found, pid);
+  if (!Object.keys(mis.symbols || {}).some(t => !found[t])) return { 'chase.active': false, 'chase.roll': null, 'chase.last': 'Every type symbol has been reached.' };
+  let i = ch.turn + 1;
+  while (i < ch.order.length && !ok(ch.order[i])) i++;
+  if (i < ch.order.length) return { 'chase.turn': i, 'chase.roll': null };
+  const pool = shuffle((c.players || []).map(p => p.id).filter(ok));      // end of round: new random order
+  if (!pool.length) return { 'chase.active': false, 'chase.roll': null, 'chase.last': 'Everyone has reached 2 types.' };
+  return { 'chase.order': pool, 'chase.turn': 0, 'chase.round': ch.round + 1, 'chase.roll': null };
+}
+function chaseMove(c, mis, pid, key) {   // a turn's move: token, any claimed symbol, and the next turn
+  const { patch, claimed } = movePatch(mis, pid, key);
+  const found = { ...(mis.found || {}), ...(claimed ? { [claimed]: pid } : {}) };
+  patch['chase.last'] = `${nameOf(c, pid)} moved${claimed ? ` and reached ${TYPES[claimed - 1]}` : ''}.`;
+  return { patch: { ...patch, ...advanceTurn(c, mis, found) }, claimed };
+}
+function chaseBar(c, mis, viewer) {     // round, order and whose turn it is (DM and phones)
+  const ch = mis.chase; if (!ch) return '';
+  if (!ch.active) return ch.last ? `<div class="banner ok"><b>Chase over.</b> ${esc(ch.last)}</div>` : '';
+  const now = ch.order[ch.turn], inits = initialsOf(c.players || []);
+  return `<div class="turnbar">
+    <div class="row"><b>Round ${ch.round}</b><span class="muted">· order is reshuffled every round</span></div>
+    <div class="row">${ch.order.map((pid, i) => `<span class="chip ${i === ch.turn ? 'on' : ''} ${i < ch.turn ? 'done' : ''}"><span class="sw" style="background:${colorOf(c, pid)}">${esc(inits[pid])}</span>${esc(nameOf(c, pid))}${pid === viewer ? ' (you)' : ''}</span>`).join('<span class="muted">›</span>')}</div>
+    <div>${ch.roll ? `<b>${esc(nameOf(c, now))}</b> rolled <b class="rollnum">${ch.roll}</b> — move up to ${ch.roll} hex${ch.roll > 1 ? 'es' : ''}.` : `Waiting for <b>${esc(nameOf(c, now))}</b> to roll.`}
+      ${ch.last ? `<span class="muted"> Last: ${esc(ch.last)}</span>` : ''}</div>
+  </div>`;
+}
+
 // ---- DM console (shared display) ----
 function storyHTML(mission) {
   if (!dataOK()) return `<div class="muted">Game data not loaded.</div>`;
@@ -433,10 +551,14 @@ function screenDM(cid) {
     const inits = initialsOf(c.players || []);
     const off = (c.players || []).filter(p => !mis.tokens?.[p.id]);
     const found = Object.entries(mis.found || {});
+    const ch = mis.chase, hasSymbols = Object.keys(mis.symbols || {}).length > 0;
     el.innerHTML = `<div class="card stack">
       <div class="row"><h2 style="margin:0">Map · ${esc(mis.name)}</h2><div class="spacer"></div>
         <button class="btn small" id="chgMap">Change map</button></div>
-      <div class="muted" id="hint">${sel ? 'Tap a hex to move the selected token, or tap it again to cancel.' : 'Tap a token, then tap where it goes. Players can also move their own on their phones.'}</div>
+      ${ch?.active ? `${chaseBar(c, mis)}
+        <div class="row"><button class="btn small" id="skipTurn">Skip turn</button>${ch.roll ? `<button class="btn small" id="reRoll">Clear roll</button>` : ''}<div class="spacer"></div><button class="btn small ghost" id="endChase">End chase</button></div>`
+        : `${ch ? chaseBar(c, mis) : ''}${hasSymbols ? `<div class="row"><button class="btn primary" id="startChase">▶ ${ch ? 'Restart' : 'Start'} the chase</button><span class="muted">Random order each round · move up to a D4</span></div>` : ''}`}
+      <div class="muted" id="hint">${sel ? 'Tap a hex to move the selected token, or tap it again to cancel.' : 'Tap a token, then tap where it goes (DM moves don\'t use up a turn). Players move their own on their phones.'}</div>
       ${off.length ? `<div class="row"><span class="muted">Not on the map:</span>${off.map(p => `<button class="chip ${sel === 'tray:' + p.id ? 'on' : ''}" data-tray="${p.id}"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)}</button>`).join('')}</div>` : ''}
       <svg class="board" id="board"></svg>
       ${found.length ? `<div class="stack" style="--gap:6px"><div style="font-weight:650">Type symbols reached</div>
@@ -444,7 +566,9 @@ function screenDM(cid) {
         <div class="muted" style="font-size:.9rem">Choosing the starter from a reached type comes in the next stage.</div></div>` : ''}
     </div>`;
     const selKey = sel && !sel.startsWith('tray:') ? mis.tokens?.[sel] : null;
-    renderBoard(document.getElementById('board'), boardOpts(c, mis, { selected: selKey }), key => {
+    const turnPid = ch?.active ? ch.order[ch.turn] : null;
+    const reach = turnPid && ch.roll && !sel ? reachable(mis, turnPid, ch.roll) : null;
+    renderBoard(document.getElementById('board'), boardOpts(c, mis, { selected: selKey || (turnPid ? mis.tokens?.[turnPid] : null), reach }), key => {
       const here = Object.entries(mis.tokens || {}).find(([, k]) => k === key)?.[0];
       if (here && !sel) { sel = here; return drawMapArea(); }
       if (here && sel === here) { sel = null; return drawMapArea(); }
@@ -457,6 +581,17 @@ function screenDM(cid) {
     });
     el.querySelectorAll('[data-tray]').forEach(b => b.onclick = () => { sel = sel === 'tray:' + b.dataset.tray ? null : 'tray:' + b.dataset.tray; drawMapArea(); });
     el.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => DB.update(MISSION(cid, misNum), { ['found.' + b.dataset.undo]: DB.DEL }).catch(saveErr));
+    const upd = patch => DB.update(MISSION(cid, misNum), patch).catch(saveErr);
+    document.getElementById('startChase')?.addEventListener('click', () => {
+      const pool = shuffle((c.players || []).map(p => p.id).filter(pid => stillChasing(mis, mis.found || {}, pid)));
+      if (!pool.length) return toast('Put player tokens on the map first');
+      const missing = (c.players || []).filter(p => !mis.tokens?.[p.id]).map(p => p.name);
+      if (missing.length) toast(`Not on the map, so not in the chase: ${missing.join(', ')}`);
+      upd({ chase: { active: true, round: 1, order: pool, turn: 0, roll: null, last: '' } });
+    });
+    document.getElementById('skipTurn')?.addEventListener('click', () => upd({ ...advanceTurn(c, mis, mis.found || {}), 'chase.last': `${nameOf(c, turnPid)}'s turn was skipped.` }));
+    document.getElementById('reRoll')?.addEventListener('click', () => upd({ 'chase.roll': null, 'chase.last': `DM cleared ${nameOf(c, turnPid)}'s roll.` }));
+    document.getElementById('endChase')?.addEventListener('click', () => { if (confirm('End the chase? Token positions and reached types stay.')) upd({ 'chase.active': false, 'chase.roll': null, 'chase.last': 'Ended by the DM.' }); });
     document.getElementById('chgMap').onclick = () => { if (confirm('Replace this mission\'s map? Token positions and reached symbols reset.')) go(`#/c/${cid}/dm/map`); };
   };
   const draw = () => {
@@ -700,6 +835,7 @@ function screenPlayer(cid, pid) {
     const takenColors = (c.players || []).filter(p => p.id !== pid).map(p => colorOf(c, p.id));
     const showMap = c.settings?.mapMode === 'app';
     const myFound = mis ? foundBy(mis, pid) : [];
+    const chasing = !!mis?.chase?.active, myTurn = chasing && mis.chase.order[mis.chase.turn] === pid;
     app.innerHTML = `
       <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)}</div><div class="spacer"></div>
         <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Not ${esc(me.name)}?</button></div>
@@ -707,7 +843,11 @@ function screenPlayer(cid, pid) {
       <div class="stack" style="margin-top:14px">
         <div class="card row"><div><div class="muted" style="font-weight:600">Current mission</div><div class="mission-num">${c.mission ?? 0}</div></div></div>
         ${showMap ? `<div class="card stack">${!mis ? `<div class="muted">${mis === undefined ? 'Loading map…' : 'Waiting for the DM to set up the map.'}</div>` : `
-          <div class="row"><h2 style="margin:0">Map</h2><div class="spacer"></div><span class="muted" style="font-size:.9rem">Tap a hex to move</span></div>
+          <div class="row"><h2 style="margin:0">Map</h2><div class="spacer"></div>${mis.chase?.active ? '' : '<span class="muted" style="font-size:.9rem">Tap a hex to move</span>'}</div>
+          ${chaseBar(c, mis, pid)}
+          ${myTurn ? `<div class="yourturn">${mis.chase.roll
+              ? `<div><b>You rolled ${mis.chase.roll}.</b> Tap a lit hex to move there.</div><button class="btn" id="stay">Stay here</button>`
+              : `<div><b>Your turn!</b> Roll to move.</div><button class="btn primary" id="rollMove">🎲 Roll D4</button>`}</div>` : ''}
           <svg class="board" id="board"></svg>
           ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached — starter choice comes next stage</span></div>` : ''}`}
         </div>` : ''}
@@ -717,12 +857,27 @@ function screenPlayer(cid, pid) {
       </div>`;
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
     if (showMap && mis) {
-      renderBoard(document.getElementById('board'), boardOpts(c, mis, { mine: pid }), key => {
+      const reach = myTurn && mis.chase.roll ? reachable(mis, pid, mis.chase.roll) : null;
+      renderBoard(document.getElementById('board'), boardOpts(c, mis, { mine: pid, reach }), key => {
         if (mis.tokens?.[pid] === key) return;
+        if (chasing) {   // during the chase you move only on your turn, within your roll
+          if (!myTurn) return toast(`Wait for your turn`);
+          if (!mis.chase.roll) return toast('Roll first');
+          if (!reach.has(key)) return toast(`Out of reach — up to ${mis.chase.roll} hex${mis.chase.roll > 1 ? 'es' : ''}`);
+          const { patch, claimed } = chaseMove(c, mis, pid, key);
+          return DB.update(MISSION(cid, misNum), patch).then(() => claimed && toast(`You reached ${TYPES[claimed - 1]}!`)).catch(saveErr);
+        }
         if (!canStand(mis, key, pid)) return toast('You can’t move there');
         const { patch, claimed } = movePatch(mis, pid, key);
         DB.update(MISSION(cid, misNum), patch).then(() => claimed && toast(`You reached ${TYPES[claimed - 1]}!`)).catch(saveErr);
       });
+      document.getElementById('rollMove')?.addEventListener('click', async () => {
+        const res = await rollDice({ title: 'Move roll', dice: [4], mode: c.settings?.dice || 'physical' });
+        if (!res || !(mis.chase?.active && mis.chase.order[mis.chase.turn] === pid && !mis.chase.roll)) return;
+        DB.update(MISSION(cid, misNum), { 'chase.roll': res.total, 'chase.last': `${nameOf(c, pid)} rolled ${res.total}.` }).catch(saveErr);
+      });
+      document.getElementById('stay')?.addEventListener('click', () =>
+        DB.update(MISSION(cid, misNum), { ...advanceTurn(c, mis, mis.found || {}), 'chase.last': `${nameOf(c, pid)} stayed put.` }).catch(saveErr));
     }
   };
   const campUnwatch = DB.watchDoc(CAMP(cid), camp => {
@@ -791,7 +946,7 @@ function hexShape(shape, p) {
   return out;
 }
 // Draws a map into an <svg>. o = { cells, ghosts, blocked, starts, symbols{typeId:key},
-// tokens{playerId:key}, players, colorOf, selected, mine }. onTap(key) runs when a hex is tapped.
+// tokens{playerId:key}, players, colorOf, selected, mine, reach (Set of hexes to light up) }. onTap(key) runs when a hex is tapped.
 function renderBoard(svg, o, onTap) {
   const S = 10, W = Math.sqrt(3) * S;
   const xy = key => { const [q, r] = key.split(',').map(Number); return [W * (q + r / 2), 1.5 * S * r]; };
@@ -807,7 +962,7 @@ function renderBoard(svg, o, onTap) {
   const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []);
   let h = `<defs><clipPath id="tclip"><circle cx="22" cy="22" r="21"/></clipPath></defs>`;
   for (const k of o.ghosts || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell ghost" points="${poly(x, y, S * .96)}"/></g>`; }
-  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : starts.has(k) ? ' start' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
+  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : o.reach?.has(k) ? ' reach' : starts.has(k) ? ' start' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
   for (const [t, k] of Object.entries(o.symbols || {})) {   // type icons: the left (symbol) part of PokeAPI's label art, clipped round
     const [x, y] = xy(k), d = S * 1.35;
     h += `<svg class="sym" x="${x - d / 2}" y="${y - d / 2}" width="${d}" height="${d}" viewBox="0 0 44 44"><circle cx="22" cy="22" r="21" class="symbg"/><image href="${typeIconUrl(t)}" width="200" height="44" clip-path="url(#tclip)"/></svg>`;
