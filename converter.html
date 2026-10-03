@@ -286,6 +286,7 @@ function nextEvolution(final, currentName) {
         pp: num(g(r, 'PP')), priority: num(g(r, 'Priority')) || 0, hits: numOrText(g(r, 'Hits')),
         target: clean(g(r, 'Target')), effect: clean(g(r, 'Effect')),
         tags: TAGS.filter(t => M.idx[t] !== undefined && clean(r[M.idx[t]])),
+        tmMinLevel: num(g(r, 'TM Min Level')),   // optional: the lowest level this move can be taken as a TM re-roll
         fx: moveEffects(c => g(r, c))
       };
     });

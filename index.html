@@ -207,6 +207,14 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .tchip.t-Normal{background:#a8a77a;color:#fff}.tchip.t-Fire{background:#ee8130;color:#fff}.tchip.t-Water{background:#6390f0;color:#fff}.tchip.t-Electric{background:#f7d02c;color:#333}.tchip.t-Grass{background:#7ac74c;color:#fff}.tchip.t-Ice{background:#96d9d6;color:#234}.tchip.t-Fighting{background:#c22e28;color:#fff}.tchip.t-Poison{background:#a33ea1;color:#fff}.tchip.t-Ground{background:#e2bf65;color:#333}.tchip.t-Flying{background:#a98ff3;color:#fff}.tchip.t-Psychic{background:#f95587;color:#fff}.tchip.t-Bug{background:#a6b91a;color:#fff}.tchip.t-Rock{background:#b6a136;color:#fff}.tchip.t-Ghost{background:#735797;color:#fff}.tchip.t-Dragon{background:#6f35fc;color:#fff}.tchip.t-Dark{background:#705746;color:#fff}.tchip.t-Steel{background:#b7b7ce;color:#333}.tchip.t-Fairy{background:#d685ad;color:#fff}
 .fieldbar { padding: 10px 14px; border-radius: 12px; background: linear-gradient(90deg, var(--warn-soft), var(--surface-2)); font-weight: 700; }
 .abil { font-size: .8rem; color: var(--muted); }
+.opt.want { border: 2px solid var(--ok); }
+.opt.locked { opacity: .5; cursor: not-allowed; }
+.plansum { font-size: .85rem; margin-top: 4px; }
+.pickcard .bst { color: var(--ink); }
+table.stats td:has(.icon-btn) { white-space: nowrap; }
+table.stats .icon-btn { width: 32px; height: 32px; font-size: 1rem; border-radius: 9px; }
+table.stats .btn.small { min-height: 32px; padding: 0 8px; }
+@media (max-width: 560px) { .modal-card { padding: 14px; } .modal { padding: 8px; } }
 details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
@@ -269,13 +277,26 @@ const LOCAL_MODE = new URLSearchParams(location.search).has('local');
 //   maps/xyz                 (one map in the shared library)
 // update() accepts dotted names like "tokens.p1" to change one piece without touching the
 // rest — that's what lets two phones move two tokens at the same moment safely.
+// Firebase refuses to save "undefined" (a blank value), so every save strips them out first.
+// Test mode also reports any it finds, so a test catches the problem before Firebase would.
+function stripUndefined(v, path = '', found = []) {
+  if (v === undefined) { found.push(path); return undefined; }
+  if (Array.isArray(v)) return v.map((x, i) => stripUndefined(x, path + '[' + i + ']', found)).map(x => x === undefined ? null : x);
+  if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+    const out = {};
+    for (const [k, x] of Object.entries(v)) { const y = stripUndefined(x, path ? path + '.' + k : k, found); if (y !== undefined) out[k] = y; }
+    return out;
+  }
+  return v;
+}
+const clean = (data, where) => { const found = []; const out = stripUndefined(data, '', found); if (found.length && LOCAL_MODE) { console.warn('Blank values removed before saving', where, found); (window.__blanks = window.__blanks || []).push(...found); } return out; };
 function makeLocalDB() {
   const KEY = 'pt-local-db';
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
   const listeners = new Set();
   const write = all => { localStorage.setItem(KEY, JSON.stringify(all)); setTimeout(() => listeners.forEach(f => f())); };   // tell screens after the current tap finishes, like Firebase
   window.addEventListener('storage', e => { if (e.key === KEY) listeners.forEach(f => f()); }); // other tabs
-  const DEL = { __delete: true };
+  const DEL = new (class DeleteMarker {})();   // a special object (not plain), so blank-stripping leaves it alone
   const isChild = (p, col) => p.startsWith(col + '/') && !p.slice(col.length + 1).includes('/');
   const setDotted = (obj, dotted, val) => {
     const ks = dotted.split('.'); let o = obj;
@@ -288,9 +309,9 @@ function makeLocalDB() {
     async check() { return true; },
     watchCol(col, cb) { return watch(() => { const all = read(); cb(Object.keys(all).filter(p => isChild(p, col)).map(p => ({ id: p.split('/').pop(), ...all[p] }))); }); },
     watchDoc(path, cb) { return watch(() => { const d = read()[path]; cb(d ? { id: path.split('/').pop(), ...d } : null); }); },
-    async add(col, data) { const all = read(); const id = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); all[col + '/' + id] = { ...data, createdAt: Date.now() }; write(all); return id; },
-    async set(path, data) { const all = read(); all[path] = { ...data, createdAt: Date.now() }; write(all); },
-    async update(path, patch) { const all = read(); if (!all[path]) throw new Error('not-found'); for (const [k, v] of Object.entries(patch)) setDotted(all[path], k, v); write(all); },
+    async add(col, data) { data = clean(data, col); const all = read(); const id = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); all[col + '/' + id] = { ...data, createdAt: Date.now() }; write(all); return id; },
+    async set(path, data) { data = clean(data, path); const all = read(); all[path] = { ...data, createdAt: Date.now() }; write(all); },
+    async update(path, patch) { patch = clean(patch, path); const all = read(); if (!all[path]) throw new Error('not-found'); for (const [k, v] of Object.entries(patch)) setDotted(all[path], k, v); write(all); },
     async remove(path) { const all = read(); delete all[path]; write(all); }
   };
 }
@@ -306,9 +327,9 @@ async function makeFirebaseDB() {
     async check() { await fs.getDocs(fs.query(fs.collection(db, 'campaigns'), fs.limit(1))); return true; },
     watchCol(col, cb) { return fs.onSnapshot(fs.collection(db, col), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), fail); },
     watchDoc(path, cb) { return fs.onSnapshot(ref(path), d => cb(d.exists() ? { id: d.id, ...d.data() } : null), fail); },
-    async add(col, data) { return (await fs.addDoc(fs.collection(db, col), { ...data, createdAt: fs.serverTimestamp() })).id; },
-    async set(path, data) { await fs.setDoc(ref(path), { ...data, createdAt: fs.serverTimestamp() }); },
-    async update(path, patch) { await fs.updateDoc(ref(path), patch); },
+    async add(col, data) { return (await fs.addDoc(fs.collection(db, col), { ...clean(data), createdAt: fs.serverTimestamp() })).id; },
+    async set(path, data) { await fs.setDoc(ref(path), { ...clean(data), createdAt: fs.serverTimestamp() }); },
+    async update(path, patch) { await fs.updateDoc(ref(path), clean(patch)); },
     async remove(path) { await fs.deleteDoc(ref(path)); }
   };
 }
@@ -329,7 +350,7 @@ function toast(msg) { const t = document.getElementById('toast'); t.textContent 
 const dataOK = () => typeof POKEDEX_DATA !== 'undefined' && typeof STORY_DATA !== 'undefined';
 const myIdKey = cid => 'pt-me-' + cid;  // which person this device is, per campaign
 
-const DICE = { physical: 'Physical dice', app: 'App dice' };
+const DICE = { physical: 'Physical dice', app: 'App dice', auto: 'Auto dice' };   // Auto = the app rolls instantly with no taps
 const MAPMODES = { physical: 'Physical table map', app: 'In-app hex map' };
 const SHAPES = {
   rectangle: { label: 'Rectangle', fields: [['w', 'Width', 12], ['h', 'Height', 9]] },
@@ -541,6 +562,11 @@ function pickOrderHTML(c, d) {   // numbered list: who picks, from which type, a
 //   Physical dice: the player taps what each real die shows (D100 gets a number box).
 const randInt = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
 function rollDice({ title, dice, mode, showTotal = true }) {
+  if (mode === 'auto') {   // Auto dice: roll instantly, no taps; the result flashes up and the battle log records it
+    const values = dice.map(d => 1 + randInt(d)), total = values.reduce((a, b) => a + b, 0);
+    toast(`🎲 ${title}: ${dice.length > 1 ? values.join(' + ') + (showTotal ? ' = ' + total : '') : total}`);
+    return Promise.resolve({ values, total });
+  }
   return new Promise(resolve => {
     const vals = dice.map(() => null);
     let rolled = false, rolling = false;
@@ -1040,7 +1066,7 @@ function screenPlayer(cid, pid) {
     if (cur && cur.pid === pid) {
       const list = starterChoices(c, cur.tid);
       h += `<div class="yourturn"><div><b>Your pick!</b> Choose a ${TYPES[cur.tid - 1]} starter. It starts at level 1 and is always shiny.</div></div>
-        <div class="pickgrid">${list.map(s => `<button class="pickcard" data-final="${s.final}">${monImg(s.startsAs, true)}<b>${esc(s.startsAs)}</b><small>→ ${esc(s.pick)}</small>
+        <div class="pickgrid">${list.map(s => `<button class="pickcard" data-final="${s.final}">${monImg(s.startsAs, true)}<b>${esc(s.startsAs)}</b><small>→ ${esc(s.pick)}</small><small class="bst">Final BST <b>${getPokemon(s.pick)?.total ?? '?'}</b></small>
           <span class="types">${(getPokemon(s.startsAs)?.types || []).map(t => `<i class="tchip">${t}</i>`).join('')}</span></button>`).join('')}</div>`;
     } else if (cur) h += `<div class="muted">Waiting for <b>${esc(nameOf(c, cur.pid))}</b> to pick a ${TYPES[cur.tid - 1]} starter.</div>`;
     return h + '</div>';
@@ -1056,7 +1082,8 @@ function screenPlayer(cid, pid) {
         ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
             <div class="statline">${statLine(m)}</div>
             <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div>
-            ${canEdit ? `<div class="row" style="gap:8px;margin-top:6px">${m.evPending ? `<button class="btn small primary" data-tev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}<button class="btn small" data-tmv="${m.uid}">Moves</button></div>` : ''}</div>`
+            ${planSummary(m)}
+            ${canEdit ? `<div class="row" style="gap:8px;margin-top:6px">${m.evPending ? `<button class="btn small primary" data-tev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}<button class="btn small" data-tmv="${m.uid}">Moves</button><button class="btn small" data-tpl="${m.uid}">Plan</button></div>` : ''}</div>`
           : draftOn ? `<div class="muted">Setup opens once everyone has picked.</div>`
           : `<div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step]}</button></div>`}
       </div></div>`;
@@ -1113,6 +1140,7 @@ function screenPlayer(cid, pid) {
     });
     app.querySelectorAll('[data-tev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.tev), saveMon));
     app.querySelectorAll('[data-tmv]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.tmv), saveMon));
+    app.querySelectorAll('[data-tpl]').forEach(x => x.onclick = () => planModal(team.find(m => m.uid === x.dataset.tpl), saveMon));
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
     const area = document.getElementById('missionArea');
     if (area) {
@@ -1193,7 +1221,7 @@ function screenSetup(cid, pid, uid) {
             : `<div>${STAT_KEYS.map(k => `${STAT_LABEL[k]} <b>${m.ivs[k]}</b>`).join(' · ')}</div>`}
           <div class="muted">${isCatch ? 'One roll per stat' : 'Best of three for each stat'}, capped at 31.</div>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="toNature">Next: nature ▶</button></div></div>`;
-      else if (mode === 'app') body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
+      else if (mode !== 'physical') body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
           <div class="muted">${isCatch ? 'Each stat rolls D6+D12+D20 once' : 'Each stat rolls D6+D12+D20 three times and keeps the best (3× advantage)'}, capped at 31.</div>
           <table class="stats"><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td data-ivr="${k}">–</td></tr>`).join('')}</tbody></table>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="rollIVs">🎲 Roll all IVs</button></div></div>`;
@@ -1349,15 +1377,25 @@ const multiHitFromD20 = d => d <= 7 ? 2 : d <= 14 ? 3 : d <= 17 ? 4 : 5;   // th
 const critFromD20 = (stage, d20) => stage >= 3 || (stage === 2 && d20 >= 11) || (stage === 1 && d20 >= 19) || d20 === 20;
 const sleepTurnsFromD6 = d => d <= 2 ? 1 : d <= 4 ? 2 : 3;
 
-// Wild Pokémon: IVs 31, neutral nature, EVs 252 / 252 / 4 into the three highest base stats
-// (ties broken in the order HP, DEF, SP DEF, SPD, ATK, SP ATK).
-const WILD_TIE_ORDER = ['hp', 'def', 'spd', 'spe', 'atk', 'spa'];
-function wildEVs(base) {
-  const order = [...WILD_TIE_ORDER].sort((a, b) => base[b] - base[a] || WILD_TIE_ORDER.indexOf(a) - WILD_TIE_ORDER.indexOf(b));
-  const ev = Object.fromEntries(STAT_KEYS.map(k => [k, 0]));
-  ev[order[0]] = 252; ev[order[1]] = 252; ev[order[2]] = 4;
+// Wild Pokémon (neutral nature):
+//   EVs: 10 × level in total, spread evenly; any leftover goes to random stats (max 85 each = 510).
+//   IVs: the total rises in a straight line from 0 at Mission 1 to 186 (all 31s) at Mission 100,
+//        and is split randomly across the six stats (max 31 each) at the start of every battle.
+const wildIVTotal = level => Math.round(186 * (Math.max(1, Math.min(100, level)) - 1) / 99);
+function spreadPoints(total, cap, random) {   // share points across the six stats, each up to cap
+  const out = Object.fromEntries(STAT_KEYS.map(k => [k, 0]));
+  if (!random) { let left = total; for (let round = 0; left > 0 && round < cap; round++) for (const k of STAT_KEYS) if (left > 0 && out[k] < cap) { out[k]++; left--; } return out; }
+  for (let left = total; left > 0; left--) { const open = STAT_KEYS.filter(k => out[k] < cap); if (!open.length) break; out[open[randInt(open.length)]]++; }
+  return out;
+}
+function wildEVs(level, random) {
+  const total = Math.min(510, 10 * level), each = Math.floor(total / 6), extra = total - each * 6;
+  const ev = Object.fromEntries(STAT_KEYS.map(k => [k, each]));
+  const order = random ? shuffle(STAT_KEYS) : STAT_KEYS;
+  order.slice(0, extra).forEach(k => ev[k]++);
   return ev;
 }
+const wildIVs = (level, random) => spreadPoints(wildIVTotal(level), 31, random);
 const statsFor = (species, ivs, evs, level, nature) => {
   const base = getPokemon(species)?.stats || {};
   return Object.fromEntries(STAT_KEYS.map(k => [k, calcStat(k, base[k] || 1, ivs[k], evs[k], level, nature)]));
@@ -1379,12 +1417,12 @@ function unitFromMon(pid, mon) {
   return newUnit({ id: 'p_' + mon.uid, side: 'p', owner: pid, ref: mon.uid, final: mon.final, name: mon.species, level: mon.level, shiny: !!mon.shiny,
     types: getPokemon(mon.species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ability: mon.ability, moves: mon.moves || [] });
 }
-function unitFromWild(final, level, setup) {
+function unitFromWild(final, level, setup, random = false) {   // random = true when a battle starts (preview uses an even split)
   const species = formAtLevel(final, level);
-  const base = getPokemon(species)?.stats || {};
-  const stats = statsFor(species, Object.fromEntries(STAT_KEYS.map(k => [k, 31])), wildEVs(base), level, null);
+  const ivs = wildIVs(level, random), evs = wildEVs(level, random);
+  const stats = statsFor(species, ivs, evs, level, null);
   return newUnit({ id: 'w_' + String(final).replace(/\W/g, '_'), side: 'w', owner: 'dm', ref: final, final, name: species, level, shiny: false,
-    types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp,
+    types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ivs, evs,
     ability: setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level) });
 }
 
@@ -1850,7 +1888,8 @@ function leaveField(b, u) {
   if (a === 'Natural Cure' && u.status) { blog(b, `${u.name}'s Natural Cure healed its ${STATUS_NAME[u.status].toLowerCase()} status.`); u.status = null; }
   if (a === 'Regenerator' && u.hp < u.maxHp && !u.fainted) blog(b, `${u.name}'s Regenerator restores ${heal(u, u.maxHp / 3)} HP.`);
   u.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); if (u.status === 'tox') u.tox = 1;
-  const keep = { swordUsed: ab(u).swordUsed, shieldUsed: ab(u).shieldUsed, syrupUsed: ab(u).syrupUsed, disguiseBroken: ab(u).disguiseBroken, iceFaceBroken: ab(u).iceFaceBroken };
+  const keep = {};
+  for (const k of ['swordUsed', 'shieldUsed', 'syrupUsed', 'disguiseBroken', 'iceFaceBroken']) if (ab(u)[k]) keep[k] = true;   // once-per-battle flags survive a switch
   u.ab = keep; u.types = getPokemon(u.name)?.types || u.types;
 }
 // Trapping abilities stop a switch.
@@ -2035,7 +2074,7 @@ function missionSetupDM(el, ctx) {
   const upd = patch => DB.update(MISSION(cid, N), patch).catch(saveErr);
   el.innerHTML = `<div class="card stack">
     <div class="row"><h2 style="margin:0">Mission ${N} setup</h2><div class="spacer"></div><span class="muted">${lines.length} Pokémon in this mission</span></div>
-    <div class="muted">Tick the wild Pokémon in this battle. Ability and moves save automatically and come back next time, in any campaign. Wild Pokémon: level ${N}, IVs 31, neutral nature, EVs 252/252/4.</div>
+    <div class="muted">Tick the wild Pokémon in this battle. Ability and moves save automatically and come back next time, in any campaign. Wild Pokémon: level ${N}, neutral nature, ${Math.min(510, 10 * N)} EVs spread evenly, IVs totaling ${wildIVTotal(N)} split randomly each battle (stats shown use an even split).</div>
     <div class="wildgrid">${lines.map(l => {
       const ws = wildSetups[String(l.final)], u = unitFromWild(l.final, N, ws), on = !!bench[benchKey(l.final)];
       return `<div class="wildcard ${on ? 'on' : ''}">
@@ -2086,7 +2125,7 @@ function missionSetupDM(el, ctx) {
     }
     if (missing.length) return toast(`Still need to star who goes out first: ${missing.join(', ')}`);
     if (!Object.values(units).some(u => u.side === 'p')) return toast('No player has a ready Pokémon yet');
-    for (const l of chosen) { const u = unitFromWild(l.final, N, wildSetups[String(l.final)]); units[u.id] = u; }
+    for (const l of chosen) { const u = unitFromWild(l.final, N, wildSetups[String(l.final)], true); units[u.id] = u; }
     const noMap = c.settings?.mapMode !== 'app';
     if (noMap) Object.values(units).forEach(u => { if (u.out) u.pos = 'table'; });
     const b = { units, init: shuffle(Object.keys(units)), names, taken: [...(c.takenFinals || [])], noMap, started: false, over: null, turn: null, needs: [], log: [`Mission ${N} battle set up.`], kos: [], catches: [] };
@@ -2204,20 +2243,22 @@ function battleView(el, ctx) {
   else {
     const t = b.turn, tier = speedTier(currentSpeed(turnU, b));
     let body = '';
-    if (t.step === 'start') {
+    const trapNow = trappedBy(b, turnU);
+    const switchBtn = trapNow ? `<span class="muted">Can't switch: ${esc(trapNow)}</span>` : `<button class="btn" data-act="switch">⇄ Switch</button>`;
+    if (BUI.switching && (t.step === 'move' || t.step === 'act')) {   // switching is allowed any time in your turn
+      const opts = units.filter(u => u.side === turnU.side && u.owner === turnU.owner && !u.out && !u.fainted);
+      body = `<div><b>Switch ${esc(turnU.name)} for:</b> (takes the same hex; uses this turn)</div><div class="row">${opts.map(u => `<button class="chip" data-switch="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}${esc(u.name)} <span class="muted">${u.hp}/${u.maxHp}</span></button>`).join('') || '<span class="muted">No one to switch in.</span>'}</div><button class="btn ghost small" data-act="back">Back</button>`;
+    } else if (t.step === 'start') {
       body = turnU.status === 'frz' ? `<div>${esc(turnU.name)} is frozen. Roll a D100: 1–20 thaws it.</div><button class="btn primary" data-act="thaw">🎲 Roll D100</button>`
         : turnU.status === 'par' ? `<div>${esc(turnU.name)} is paralyzed. Roll a D100: 1–25 means it can't move this turn.</div><button class="btn primary" data-act="para">🎲 Roll D100</button>`
         : `<div>${esc(turnU.name)} is asleep (${turnU.slp} turn${turnU.slp === 1 ? '' : 's'} left).</div><button class="btn primary" data-act="sleep">Continue</button>`;
     } else if (t.step === 'move') {
-      body = !t.roll ? `<div>Speed ${currentSpeed(turnU, b)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
-        : b.noMap ? `<div>Rolled <b class="rollnum">${t.roll}</b>. Move up to ${t.roll} hexes on the table.</div><button class="btn primary" data-act="stay">Done moving</button>`
-        : `<div>Rolled <b class="rollnum">${t.roll}</b>. Tap a lit hex.</div><button class="btn" data-act="stay">Stay here</button>`;
+      body = !t.roll ? `<div>Speed ${currentSpeed(turnU, b)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button><div class="spacer"></div>${switchBtn}</div>`
+        : b.noMap ? `<div>Rolled <b class="rollnum">${t.roll}</b>. Move up to ${t.roll} hexes on the table.</div><div class="row"><button class="btn primary" data-act="stay">Done moving</button><div class="spacer"></div>${switchBtn}</div>`
+        : `<div>Rolled <b class="rollnum">${t.roll}</b>. Tap a lit hex.</div><div class="row"><button class="btn" data-act="stay">Stay here</button><div class="spacer"></div>${switchBtn}</div>`;
     } else if (t.step === 'act') {
       const mv = BUI.move && getMove(BUI.move);
-      if (BUI.switching) {
-        const opts = units.filter(u => u.side === turnU.side && u.owner === turnU.owner && !u.out && !u.fainted);
-        body = `<div><b>Switch ${esc(turnU.name)} for:</b> (takes the same hex; uses this turn)</div><div class="row">${opts.map(u => `<button class="chip" data-switch="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}${esc(u.name)} <span class="muted">${u.hp}/${u.maxHp}</span></button>`).join('') || '<span class="muted">No one to switch in.</span>'}</div><button class="btn ghost small" data-act="back">Back</button>`;
-      } else if (mv) {
+      if (mv) {
         const selfMv = isSelfMove(mv), spreadMv = SPREAD_TARGETS.includes(mv.target);
         const cands = units.filter(u => onField(b, u) && u.id !== turnU.id);
         BUI.targets = (BUI.targets || []).filter(id => cands.some(u => u.id === id));
@@ -2571,23 +2612,85 @@ function afterMissionPlayer(el, ctx) {
       <div class="row" style="gap:8px">
         ${m.rerolls?.mission === N && (m.rerolls.left > 0 || m.reroll) ? `<button class="btn small primary" data-rr="${m.uid}">🎲 Re-roll${m.reroll ? ' (result waiting)' : ` (${m.rerolls.left} left)`}</button>` : ''}
         ${m.evPending ? `<button class="btn small primary" data-ev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}
-        <button class="btn small" data-mvs="${m.uid}">Moves</button></div></div></div>`).join('')}
+        <button class="btn small" data-mvs="${m.uid}">Moves</button><button class="btn small" data-pln="${m.uid}">Plan</button></div>${planSummary(m)}</div></div>`).join('')}
     <div class="muted" style="font-size:.9rem">The DM starts the next mission when everyone's ready.</div></div>`;
   el.querySelectorAll('[data-rr]').forEach(x => x.onclick = () => rerollModal(team.find(m => m.uid === x.dataset.rr), saveMon, mode, N));
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.ev), saveMon));
   el.querySelectorAll('[data-mvs]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.mvs), saveMon));
+  el.querySelectorAll('[data-pln]').forEach(x => x.onclick = () => planModal(team.find(m => m.uid === x.dataset.pln), saveMon));
 }
-// One re-roll per KO: pick IV, Nature, Ability or Shiny; roll; then keep it or throw it away.
+// ---- Plans: what a player is aiming for with each Pokémon ----
+// plan = { nature, abilitySlot ('1' | '2' | 'H'), ivStats: [stats whose IVs matter], evs: { stat: target } }
+const finalOf = m => getPokemon(m.finalName) || getPokemon(m.species);
+function planFlags(m) {   // where the Pokémon differs from its plan
+  const p = m.plan; if (!p) return null;
+  const f = { nature: p.nature ? p.nature === m.nature : null, ability: p.abilitySlot ? p.abilitySlot === m.abilitySlot : null,
+    ivs: (p.ivStats || []).filter(k => (m.ivs?.[k] ?? 0) < 31), evs: null };
+  if (p.evs) f.evs = STAT_KEYS.filter(k => (m.evs?.[k] || 0) < (p.evs[k] || 0));
+  return f;
+}
+function planSummary(m) {
+  const f = planFlags(m); if (!f) return '';
+  const bits = [];
+  if (f.nature !== null) bits.push(f.nature ? '<span class="up">✓ Nature</span>' : `<span class="down">✗ Nature (want ${esc(m.plan.nature)})</span>`);
+  if (f.ability !== null) bits.push(f.ability ? '<span class="up">✓ Ability</span>' : `<span class="down">✗ Ability (want ${esc(abilityBySlot(m.species, m.plan.abilitySlot) || '')})</span>`);
+  if ((m.plan.ivStats || []).length) bits.push(f.ivs.length ? `<span class="down">IVs to raise: ${f.ivs.map(k => `${STAT_LABEL[k]} ${m.ivs[k]}`).join(', ')}</span>` : '<span class="up">✓ IVs</span>');
+  if (f.evs) bits.push(f.evs.length ? `<span class="muted">EVs short of plan: ${f.evs.map(k => STAT_LABEL[k]).join(', ')}</span>` : '<span class="up">✓ EVs</span>');
+  return `<div class="plansum">Plan: ${bits.join(' · ') || '<span class="muted">nothing set</span>'}</div>`;
+}
+function planModal(m, saveMon) {
+  const fin = finalOf(m), cur = getPokemon(m.species);
+  const plan = { nature: m.plan?.nature || '', abilitySlot: m.plan?.abilitySlot || '', ivStats: [...(m.plan?.ivStats || [])], evs: { ...(m.plan?.evs || {}) } };
+  const slots = [['1', cur?.abilities?.[0], fin?.abilities?.[0]], ['2', cur?.abilities?.[1], fin?.abilities?.[1]], ['H', cur?.hidden, fin?.hidden]].filter(x => x[1]);
+  openModal((card, close, redraw) => {
+    const evTotal = STAT_KEYS.reduce((a, k) => a + (+plan.evs[k] || 0), 0);
+    card.innerHTML = `<h2 style="margin:0">Plan for ${esc(m.species)}</h2><div class="muted">What you're aiming for. Re-rolls and EVs get flagged against this.</div>
+      <label class="field"><span>Target nature</span><select id="pNat"><option value="">— none —</option>${NATURE_NAMES.map(n => { const x = natureInfo(n); return `<option value="${n}" ${n === plan.nature ? 'selected' : ''}>${n}${x.up ? ` (+${STAT_LABEL[x.up]} −${STAT_LABEL[x.down]})` : ' (neutral)'}</option>`; }).join('')}</select></label>
+      <label class="field"><span>Target ability</span><select id="pAb"><option value="">— none —</option>${slots.map(([sl, a, fa]) => `<option value="${sl}" ${sl === plan.abilitySlot ? 'selected' : ''}>${esc(a)}${fa && fa !== a ? ` → ${esc(fa)} as ${esc(m.finalName)}` : ''}${sl === 'H' ? ' (hidden)' : ''}</option>`).join('')}</select></label>
+      <div><div style="font-weight:650;margin-bottom:6px">IVs that matter (you want these at 31)</div><div class="seg">${STAT_KEYS.map(k => `<button aria-pressed="${plan.ivStats.includes(k)}" data-iv="${k}">${STAT_LABEL[k]} <span class="muted">${m.ivs?.[k] ?? '–'}</span></button>`).join('')}</div></div>
+      <div><div style="font-weight:650;margin-bottom:6px">Target EVs <span class="muted">(${evTotal}/510, max 252 each)</span></div>
+        <div class="two">${STAT_KEYS.map(k => `<label class="field"><span>${STAT_LABEL[k]} <span class="muted">(Lv 100 ${esc(m.finalName)}: ${calcStat(k, fin.stats[k], m.ivs?.[k] ?? 31, +plan.evs[k] || 0, 100, plan.nature || m.nature)})</span></span><input type="number" min="0" max="252" step="4" data-ev="${k}" value="${plan.evs[k] || ''}" placeholder="0"></label>`).join('')}</div></div>
+      ${evTotal > 510 ? '<div class="banner bad">Target EVs add up to more than 510.</div>' : ''}
+      <div class="row"><button class="btn ghost" data-x>Cancel</button><div class="spacer"></div><button class="btn primary" data-ok ${evTotal > 510 ? 'disabled' : ''}>Save plan</button></div>`;
+    card.querySelector('#pNat').onchange = e => { plan.nature = e.target.value; redraw(); };
+    card.querySelector('#pAb').onchange = e => { plan.abilitySlot = e.target.value; };
+    card.querySelectorAll('[data-iv]').forEach(x => x.onclick = () => { const k = x.dataset.iv; plan.ivStats = plan.ivStats.includes(k) ? plan.ivStats.filter(y => y !== k) : [...plan.ivStats, k]; redraw(); });
+    card.querySelectorAll('[data-ev]').forEach(x => x.onchange = () => { plan.evs[x.dataset.ev] = Math.max(0, Math.min(252, parseInt(x.value) || 0)); redraw(); });
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelector('[data-ok]').onclick = () => {
+      const evs = Object.fromEntries(STAT_KEYS.filter(k => +plan.evs[k]).map(k => [k, +plan.evs[k]]));
+      saveMon(m.uid, { plan: { nature: plan.nature || null, abilitySlot: plan.abilitySlot || null, ivStats: plan.ivStats, evs: Object.keys(evs).length ? evs : null } }); close();
+    };
+  });
+}
+
+// ---- TMs from re-rolls ----
+// Power cap by the Pokémon's level: 1–20 → 60, 21–30 → 70, 31–40 → 80, 41–50 → 100, 51+ → any.
+// Status moves (and moves without a set power) have no cap. The Moves tab's "TM Min Level" column can hold any move back.
+const tmPowerCap = lv => lv <= 20 ? 60 : lv <= 30 ? 70 : lv <= 40 ? 80 : lv <= 50 ? 100 : Infinity;
+const levelForPower = p => p <= 60 ? 1 : p <= 70 ? 21 : p <= 80 ? 31 : p <= 100 ? 41 : 51;
+function tmCheck(mv, level) {   // { ok, why }
+  if (mv.tmMinLevel && level < mv.tmMinLevel) return { ok: false, why: `available at level ${mv.tmMinLevel}` };
+  if (mv.category !== 'Status' && mv.power && mv.power > tmPowerCap(level)) return { ok: false, why: `power ${mv.power}: available at level ${levelForPower(mv.power)}` };
+  return { ok: true, why: '' };
+}
+const movesKnown = m => [...new Set([...knowableMoves(m.species, m.level), ...(m.tms || [])])];
+
+// One re-roll per KO: pick IV, Nature, Ability, Shiny or a TM; roll; then keep it or throw it away.
 function rerollModal(m, saveMon, mode, N) {
   openModal((card, close) => {
-    const rr = m.reroll, p = getPokemon(m.species);
+    const rr = m.reroll, p = getPokemon(m.species), f = planFlags(m);
+    const want = { iv: f && f.ivs.length, nature: f && f.nature === false, ability: f && f.ability === false };
     if (!rr) {
       card.innerHTML = `<h2 style="margin:0">Re-roll for ${esc(m.species)}</h2><div class="muted">${m.rerolls.left} left (one per KO). Pick what to roll for. You can keep the result or discard it.</div>
-        <div class="optgrid">${[['iv', 'IV', 'D6+D12+D20 → put it on any stat'], ['nature', 'Nature', 'D100'], ['ability', 'Ability', 'D100'], ['shiny', 'Shiny', 'D6+D12+D20 total of 3']].map(([k, l, d]) => `<button class="opt" data-cat="${k}"><b>${l}</b><small>${d}</small></button>`).join('')}</div>
+        ${planSummary(m) || '<div class="muted" style="font-size:.9rem">Tip: set a Plan for this Pokémon and the app flags what to re-roll.</div>'}
+        <div class="optgrid">${[['iv', 'IV', 'D6+D12+D20 → put it on any stat'], ['nature', 'Nature', 'D100'], ['ability', 'Ability', 'D100'], ['shiny', 'Shiny', 'D6+D12+D20 total of 3'], ['tm', 'TM', 'Pick a TM-type move']].map(([k, l, d]) => `<button class="opt ${want[k] ? 'want' : ''}" data-cat="${k}"><b>${l}${want[k] ? ' ★' : ''}</b><small>${d}</small>${want[k] ? '<small class="up">Your plan wants this</small>' : ''}</button>`).join('')}</div>
         <div class="row"><div class="spacer"></div><button class="btn ghost" data-x>Close</button></div>`;
       card.querySelector('[data-x]').onclick = close;
       card.querySelectorAll('[data-cat]').forEach(x => x.onclick = async () => {
-        const cat = x.dataset.cat, dice = cat === 'nature' || cat === 'ability' ? [100] : [6, 12, 20];
+        const cat = x.dataset.cat;
+        if (cat === 'tm') { close(); return tmModal(m, saveMon); }
+        const dice = cat === 'nature' || cat === 'ability' ? [100] : [6, 12, 20];
         const r = await rollDice({ title: `${m.species}: ${cat === 'iv' ? 'IV' : cat} re-roll`, dice, mode });
         if (!r) return;
         m = { ...m, reroll: { cat, total: r.total }, rerolls: { ...m.rerolls, left: m.rerolls.left - 1 } };
@@ -2596,13 +2699,14 @@ function rerollModal(m, saveMon, mode, N) {
       return;
     }
     const clear = async patch => { await saveMon(m.uid, { ...patch, reroll: null }); close(); };
+    const planNote = (ok, wantText) => m.plan ? (ok ? '<div class="up">✓ Matches your plan</div>' : `<div class="down">Not your plan${wantText ? ` (you want ${wantText})` : ''}</div>`) : '';
     let body = '', choices = '';
     if (rr.cat === 'iv') {
-      const iv = Math.min(31, rr.total);
-      body = `Rolled <b>${rr.total}</b> → IV <b>${iv}</b>. Put it on a stat, or discard it.`;
-      choices = `<div class="optgrid">${STAT_KEYS.map(k => `<button class="opt" data-iv="${k}"><b>${STAT_LABEL[k]}</b><small>now ${m.ivs[k]}${iv > m.ivs[k] ? ' ▲' : iv < m.ivs[k] ? ' ▼' : ''}</small></button>`).join('')}</div>`;
-    } else if (rr.cat === 'nature') { const n = natureFromD100(rr.total); body = `Rolled <b>${rr.total}</b> → <b>${n}</b> (${natureTag(n)}). Current: ${esc(m.nature)} (${natureTag(m.nature)}).`; choices = `<button class="btn primary" data-keep>Switch to ${n}</button>`; }
-    else if (rr.cat === 'ability') { const a = abilityFromD100(p, rr.total); body = `Rolled <b>${rr.total}</b> → <b>${esc(a.name)}</b>${a.slot === 'H' ? ' (hidden)' : ''}. Current: ${esc(m.ability)}.<div class="muted" style="font-size:.9rem">${esc(getAbility(a.name)?.effect || '')}</div>`; choices = `<button class="btn primary" data-keep>Switch to ${esc(a.name)}</button>`; }
+      const iv = Math.min(31, rr.total), pri = m.plan?.ivStats || [];
+      body = `Rolled <b>${rr.total}</b> → IV <b>${iv}</b>. Put it on a stat, or discard it.${pri.length ? ' <span class="muted">★ = a stat your plan cares about</span>' : ''}`;
+      choices = `<div class="optgrid">${STAT_KEYS.map(k => `<button class="opt ${pri.includes(k) && iv > m.ivs[k] ? 'want' : ''}" data-iv="${k}"><b>${STAT_LABEL[k]}${pri.includes(k) ? ' ★' : ''}</b><small>now ${m.ivs[k]}${iv > m.ivs[k] ? ' ▲ better' : iv < m.ivs[k] ? ' ▼ worse' : ' same'}</small></button>`).join('')}</div>`;
+    } else if (rr.cat === 'nature') { const n = natureFromD100(rr.total); body = `Rolled <b>${rr.total}</b> → <b>${n}</b> (${natureTag(n)}). Current: ${esc(m.nature)} (${natureTag(m.nature)}).${planNote(m.plan?.nature ? n === m.plan.nature : true, m.plan?.nature)}`; choices = `<button class="btn primary" data-keep>Switch to ${n}</button>`; }
+    else if (rr.cat === 'ability') { const a = abilityFromD100(p, rr.total); body = `Rolled <b>${rr.total}</b> → <b>${esc(a.name)}</b>${a.slot === 'H' ? ' (hidden)' : ''}. Current: ${esc(m.ability)}.<div class="muted" style="font-size:.9rem">${esc(getAbility(a.name)?.effect || '')}</div>${planNote(m.plan?.abilitySlot ? a.slot === m.plan.abilitySlot : true, m.plan?.abilitySlot ? abilityBySlot(m.species, m.plan.abilitySlot) : '')}`; choices = `<button class="btn primary" data-keep>Switch to ${esc(a.name)}</button>`; }
     else { const hit = rr.total === 3; body = hit ? `Rolled <b>3</b> — <b>it's shiny!</b> ★` : `Rolled <b>${rr.total}</b>. Not shiny (needs a total of 3).`; choices = hit ? `<button class="btn primary" data-keep>Make it shiny ★</button>` : ''; }
     card.innerHTML = `<h2 style="margin:0">${esc(m.species)}: re-roll result</h2><div>${body}</div>${choices}<div class="row"><div class="spacer"></div><button class="btn ghost" data-discard>${rr.cat === 'shiny' && rr.total !== 3 ? 'OK' : 'Discard'}</button></div>`;
     card.querySelectorAll('[data-iv]').forEach(x => x.onclick = () => clear({ ivs: { ...m.ivs, [x.dataset.iv]: Math.min(31, rr.total) } }));
@@ -2614,33 +2718,65 @@ function rerollModal(m, saveMon, mode, N) {
     card.querySelector('[data-discard]').onclick = () => clear({});
   });
 }
-// Place this level's EVs: any split, at most 252 per stat and 510 in total.
+// TM re-roll: pick any TM / Egg / Tutor / Special move this Pokémon can learn and is allowed at its level.
+function tmModal(m, saveMon) {
+  const known = new Set(movesKnown(m));
+  const list = tmStyleMoves(m.species).filter(n => !known.has(n)).map(n => ({ n, mv: getMove(n) })).filter(x => x.mv)
+    .map(x => ({ ...x, ...tmCheck(x.mv, m.level) })).sort((a, b) => (b.ok - a.ok) || a.n.localeCompare(b.n));
+  let filter = '';
+  openModal((card, close, redraw) => {
+    const shown = list.filter(x => !filter || x.n.toLowerCase().includes(filter) || (x.mv.type || '').toLowerCase().includes(filter));
+    card.innerHTML = `<h2 style="margin:0">TM for ${esc(m.species)}</h2>
+      <div class="muted">Uses 1 re-roll (${m.rerolls.left} left). Level ${m.level}: damaging moves up to power ${tmPowerCap(m.level) === Infinity ? 'any' : tmPowerCap(m.level)}; status moves any time unless held back in the Moves tab.</div>
+      <input type="text" id="tmFind" placeholder="Search by name or type" value="${esc(filter)}">
+      <div class="stack" style="max-height:55vh;overflow:auto">${shown.map(x => `<button class="opt wide ${x.ok ? '' : 'locked'}" data-tm="${esc(x.n)}" ${x.ok ? '' : 'disabled'}>${moveCardHTML(x.n, x.ok ? '' : `<span class="pill">🔒 ${esc(x.why)}</span>`)}</button>`).join('') || '<div class="muted">No moves match.</div>'}</div>
+      <div class="row"><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button></div>`;
+    const find = card.querySelector('#tmFind');
+    find.oninput = () => { filter = find.value.toLowerCase(); const pos = find.selectionStart; redraw(); const f2 = card.querySelector('#tmFind'); f2.focus(); f2.setSelectionRange(pos, pos); };
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelectorAll('[data-tm]').forEach(x => x.onclick = async () => {
+      const n = x.dataset.tm;
+      if (!confirm(`Teach ${n} to ${m.species}? This uses a re-roll. It stays in ${m.species}'s move list for good.`)) return;
+      await saveMon(m.uid, { tms: [...(m.tms || []), n], rerolls: { ...m.rerolls, left: m.rerolls.left - 1 } });
+      close(); toast(`${m.species} learned ${n}! Use Moves to put it in its four.`);
+    });
+  });
+}
+// Place this level's EVs: any split, at most 252 per stat and 510 in total. Shows the final form at level 100 too.
 function evModal(m, saveMon) {
   const add = Object.fromEntries(STAT_KEYS.map(k => [k, 0]));
-  const p = getPokemon(m.species);
+  const p = getPokemon(m.species), fin = finalOf(m);
   openModal((card, close, redraw) => {
     const used = STAT_KEYS.reduce((a, k) => a + add[k], 0), left = m.evPending - used;
     const total = k => (m.evs?.[k] || 0) + add[k];
+    const target = m.plan?.evs;
     card.innerHTML = `<h2 style="margin:0">Place EVs: ${esc(m.species)}</h2><div class="muted"><b>${left}</b> of ${m.evPending} left. Max 252 per stat, 510 total.</div>
-      <table class="stats"><thead><tr><th></th><th>EVs</th><th>Add</th><th></th><th>Stat (Lv ${m.level})</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${total(k)}</td>
+      <table class="stats"><thead><tr><th></th><th>EVs</th>${target ? '<th>Plan</th>' : ''}<th>Add</th><th></th><th>Lv ${m.level}</th><th title="${esc(m.finalName)} at level 100 with these EVs">Lv 100*</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${total(k)}</td>${target ? `<td class="muted">${target[k] || 0}</td>` : ''}
         <td><button class="icon-btn" data-d="${k}" data-v="-10">−</button> <b>${add[k]}</b> <button class="icon-btn" data-d="${k}" data-v="10">+</button></td>
-        <td><button class="btn small ghost" data-d="${k}" data-v="1">+1</button></td><td>${calcStat(k, p.stats[k], m.ivs[k], total(k), m.level, m.nature)}</td></tr>`).join('')}</tbody></table>
-      <div class="row"><button class="btn ghost" data-x>Cancel</button><div class="spacer"></div><button class="btn primary" data-ok ${used ? '' : 'disabled'}>Save</button></div>`;
+        <td><button class="btn small ghost" data-d="${k}" data-v="1">+1</button></td><td>${calcStat(k, p.stats[k], m.ivs[k], total(k), m.level, m.nature)}</td>
+        <td><b>${calcStat(k, fin.stats[k], m.ivs[k], total(k), 100, m.nature)}</b></td></tr>`).join('')}</tbody></table>
+      <div class="muted" style="font-size:.8rem">*${esc(m.finalName)} at level 100 with these IVs, nature and EVs.</div>
+      <div class="row"><button class="btn ghost" data-x>Cancel</button>${target ? '<button class="btn small" data-plan>Place by plan</button>' : ''}<div class="spacer"></div><button class="btn primary" data-ok ${used ? '' : 'disabled'}>Save</button></div>`;
     card.querySelectorAll('[data-d]').forEach(x => x.onclick = () => {
       const k = x.dataset.d, v = +x.dataset.v;
       const room = Math.min(left, 252 - total(k)), next = v > 0 ? add[k] + Math.min(v, room) : Math.max(0, add[k] + v);
       add[k] = next; redraw();
+    });
+    card.querySelector('[data-plan]')?.addEventListener('click', () => {   // fill toward the plan, in stat order, until the EVs run out
+      let rem = left;
+      for (const k of STAT_KEYS) { const need = Math.max(0, (target[k] || 0) - total(k)), give = Math.min(need, rem, 252 - total(k)); add[k] += give; rem -= give; }
+      if (rem === left) toast('Already at your plan — place the rest by hand'); redraw();
     });
     card.querySelector('[data-x]').onclick = close;
     card.querySelector('[data-ok]').onclick = () => { saveMon(m.uid, { evs: Object.fromEntries(STAT_KEYS.map(k => [k, total(k)])), evPending: left }); close(); };
   });
 }
 function movesModal(m, saveMon) {
-  const all = knowableMoves(m.species, m.level);
+  const all = movesKnown(m);
   let pick = [...(m.moves || [])];
   openModal((card, close, redraw) => {
-    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}'s moves</h2><div class="muted">Any 4 of the level-up moves it knows at level ${m.level}.</div>
-      <div class="stack" style="max-height:55vh;overflow:auto">${all.map(mv => `<button class="opt wide ${pick.includes(mv) ? 'on' : ''}" data-m="${esc(mv)}">${moveCardHTML(mv)}</button>`).join('')}</div>
+    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}'s moves</h2><div class="muted">Any 4 of the level-up moves it knows at level ${m.level}${(m.tms || []).length ? ', plus its TMs' : ''}.</div>
+      <div class="stack" style="max-height:55vh;overflow:auto">${all.map(mv => `<button class="opt wide ${pick.includes(mv) ? 'on' : ''}" data-m="${esc(mv)}">${moveCardHTML(mv, (m.tms || []).includes(mv) ? '<span class="pill">TM</span>' : '')}</button>`).join('')}</div>
       <div class="row"><span class="muted">${pick.length}/4</span><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok ${pick.length ? '' : 'disabled'}>Save</button></div>`;
     card.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { const mv = x.dataset.m; if (pick.includes(mv)) pick = pick.filter(y => y !== mv); else if (pick.length < 4) pick.push(mv); else return toast('4 moves max'); redraw(); });
     card.querySelector('[data-x]').onclick = close;
