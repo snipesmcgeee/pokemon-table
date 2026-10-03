@@ -245,6 +245,32 @@ function nextEvolution(final, currentName) {
   }
 
   // ---- Moves ----
+  // Move-effect columns (Automated … Fixed Damage) become a small "fx" object the battle screen runs.
+  const STATUS_CODES = { 'Burn': 'brn', 'Paralysis': 'par', 'Poison': 'psn', 'Badly Poisoned': 'tox', 'Sleep': 'slp', 'Freeze': 'frz' };
+  const STAT_CODES = { 'ATK': 'atk', 'DEF': 'def', 'SP ATK': 'spa', 'SP DEF': 'spd', 'SPD': 'spe', 'ACC': 'acc', 'EVADE': 'eva' };
+  const statChanges = t => {   // "DEF -1, SP DEF -1" → { def: -1, spd: -1 }
+    if (!t) return null; const out = {};
+    for (const part of String(t).split(',')) {
+      const m = part.trim().match(/^(.*?)\s*([+-]\d+)$/);
+      if (m && STAT_CODES[m[1].trim()]) out[STAT_CODES[m[1].trim()]] = Number(m[2]);
+      else if (part.trim()) warnings.push(`Moves: can't read stat change "${part.trim()}"`);
+    }
+    return Object.keys(out).length ? out : null;
+  };
+  function moveEffects(col) {   // col('Header') reads this row's cell
+    const auto = clean(col('Automated'));
+    if (!auto) return null;
+    const crit = clean(col('Crit Stage')), fixed = clean(col('Fixed Damage')), st = clean(col('Inflicts Status'));
+    if (st && !STATUS_CODES[st]) warnings.push(`Moves: unknown status "${st}"`);
+    return {
+      auto: String(auto).toLowerCase(), why: clean(col('Why Not Automated')),
+      chance: num(col('Effect Chance %')), status: STATUS_CODES[st] || null,
+      target: statChanges(clean(col('Target Stat Change'))), user: statChanges(clean(col('User Stat Change'))),
+      userChance: num(col('User Change Chance %')), recoil: num(col('Recoil %')), drain: num(col('Drain %')), heal: num(col('Heal %')),
+      crit: crit ? (String(crit).toLowerCase() === 'always' ? 'always' : Number(String(crit).replace('+', ''))) : 0,
+      fixed: fixed ? (String(fixed).toLowerCase() === 'level' ? 'level' : Number(fixed)) : null
+    };
+  }
   const M = table('Moves', ['APIID', 'ShowdownID', 'Move', 'Type', 'Category', 'Power', 'Accuracy', 'PP', 'Priority', 'Hits', 'Target', 'Effect']);
   const moveNames = new Set();
   if (M) {
@@ -259,9 +285,11 @@ function nextEvolution(final, currentName) {
         accuracy: acc === '—' ? null : num(acc), alwaysHits: acc === '—',
         pp: num(g(r, 'PP')), priority: num(g(r, 'Priority')) || 0, hits: numOrText(g(r, 'Hits')),
         target: clean(g(r, 'Target')), effect: clean(g(r, 'Effect')),
-        tags: TAGS.filter(t => M.idx[t] !== undefined && clean(r[M.idx[t]]))
+        tags: TAGS.filter(t => M.idx[t] !== undefined && clean(r[M.idx[t]])),
+        fx: moveEffects(c => g(r, c))
       };
     });
+    if (M.idx['Automated'] === undefined) warnings.push('Moves tab has no "Automated" column, so move effects will be handled by hand in battle.');
     counts.Moves = moves.length;
     files['moves.js'] = js(`Moves (${moves.length})`, 'MOVES_DATA', moves,
 `const MOVES = {};
