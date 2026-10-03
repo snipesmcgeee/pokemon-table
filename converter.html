@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pokemon Table — Data Converter</title>
+<!--
+  converter.html — turns TableMirror.xlsx into the game's data files.
+  How to use: open this page, drop in the workbook, press Convert, press Download All (.zip),
+  unzip, and upload the files into the repo's "data" folder on GitHub (replace the old ones).
+  Nothing is sent anywhere: the workbook is read inside your browser.
+-->
+<style>
+  :root {
+    --bg: #f4f6fb; --card: #ffffff; --ink: #1d2433; --muted: #6a7489; --line: #e3e7f0;
+    --accent: #e3350d; --ok: #1f8a4c; --warn: #b7791f; --bad: #c53030;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px; }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 2px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 14px; box-shadow: 0 2px 10px rgba(20,30,60,.04); }
+  .card h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.drag { border-color: var(--accent); background: #fff6f3; }
+  .drop input { display: none; }
+  .fname { color: var(--ok); font-weight: 600; margin-top: 6px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 11px 18px; background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { background: #eef1f7; color: var(--ink); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .status { padding: 10px 12px; border-radius: 10px; margin-top: 12px; white-space: pre-line; }
+  .status.info { background: #eef4ff; color: #2b4c8c; }
+  .status.ok { background: #e8f6ee; color: var(--ok); }
+  .status.bad { background: #fdecec; color: var(--bad); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { background: #f1f3f8; border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  .chip b { color: var(--accent); }
+  .files { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 12px; }
+  .file { border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; }
+  .file:hover { border-color: var(--accent); }
+  .file .n { font-weight: 600; }
+  .file .s { color: var(--muted); font-size: 12px; }
+  .warn { background: #fff8e6; border: 1px solid #f3d27a; color: #7a5a12; border-radius: 10px; padding: 10px 12px; margin-top: 12px; font-size: 13px; max-height: 260px; overflow: auto; }
+  .warn li { margin: 2px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pokemon Table — Data Converter</h1>
+  <p class="sub">Drop in <b>TableMirror.xlsx</b> → get the game's data files.</p>
+
+  <div class="card">
+    <h2>Step 1 — Workbook</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".xlsx">
+      <div>📂 Click to choose, or drag the workbook here</div>
+      <div class="fname" id="fname"></div>
+    </label>
+    <div class="chips" id="sheets"></div>
+  </div>
+
+  <div class="card" id="convertCard" style="display:none">
+    <h2>Step 2 — Convert</h2>
+    <button id="convertBtn">Convert</button>
+    <div class="status info" id="status">Ready.</div>
+  </div>
+
+  <div class="card" id="downloadCard" style="display:none">
+    <h2>Step 3 — Download, then upload to GitHub's data folder</h2>
+    <div class="row">
+      <button id="zipBtn">⬇ Download All (.zip)</button>
+      <span class="sub" style="margin:0">Unzip, then drag the files into the repo's <b>data</b> folder and replace the old ones.</span>
+    </div>
+    <div class="files" id="files"></div>
+    <div id="warnings"></div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// =====================================================================
+// CONVERSION — pure function: workbook in → { files, warnings, counts } out.
+// Columns are found by their header text, so column order in Excel can change freely.
+// =====================================================================
+const FLAG = '!!!!';
+const METHOD_CODE = { 'Level-up': 'L', 'TM': 'M', 'Egg': 'E', 'Tutor': 'T', 'Special': 'S' };
+
+function convertWorkbook(wb) {
+  const warnings = [];
+  const files = {};
+  const counts = {};
+  const stamp = new Date().toLocaleString();
+
+  // ---- helpers ----
+  const clean = v => (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) ? null : (typeof v === 'string' ? v.trim() : v);
+  const num = v => { v = clean(v); if (v === null) return null; const n = Number(v); return isNaN(n) ? null : n; };
+  const numOrText = v => { v = clean(v); if (v === null) return null; const n = Number(v); return isNaN(n) ? v : n; };
+  function table(name, required) {
+    const ws = wb.Sheets[name];
+    if (!ws) { warnings.push(`Missing tab: "${name}"`); return null; }
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+    const header = (rows[0] || []).map(h => h === null ? '' : String(h).trim());
+    const missing = (required || []).filter(c => !header.includes(c));
+    if (missing.length) warnings.push(`"${name}" tab is missing column(s): ${missing.join(', ')}`);
+    const idx = Object.fromEntries(header.map((h, i) => [h, i]));
+    return { header, idx, rows: rows.slice(1).filter(r => r.some(c => clean(c) !== null)) };
+  }
+  function js(title, varName, data, helpers) {
+    return `// Pokemon Table — ${title}\n// Auto-generated by converter.html from the workbook — edit the workbook, not this file.\n// Generated: ${stamp}\n\nconst ${varName} = ${JSON.stringify(data)};\n${helpers ? '\n' + helpers + '\n' : ''}`;
+  }
+
+  // ---- Pokedex ----
+  const P = table('Pokedex', ['National Dex', 'Family', 'Stage', 'Final', 'Mission', 'APIID', 'ShowdownID', 'Display Name',
+    'Type 1', 'Type 2', 'HP', 'ATK', 'DEF', 'SP ATK', 'SP DEF', 'SPD', 'Total', 'Ability 1', 'Ability 2', 'Hidden Ability',
+    'Evolution', 'Real Evolution', 'Sprite ID', 'Custom Sprite']);
+  const dex = [];
+  const names = new Set();
+  if (P) {
+    const g = (r, c) => P.idx[c] === undefined ? null : r[P.idx[c]];
+    let flagged = 0;
+    for (const r of P.rows) {
+      const name = clean(g(r, 'Display Name'));
+      if (!name) { warnings.push('Pokedex row with no Display Name skipped'); continue; }
+      if (names.has(name)) warnings.push(`Pokedex: duplicate Display Name "${name}"`);
+      names.add(name);
+      const api = clean(g(r, 'APIID')), sd = clean(g(r, 'ShowdownID'));
+      if (api === FLAG || sd === FLAG) flagged++;
+      dex.push({
+        dex: num(g(r, 'National Dex')), family: num(g(r, 'Family')), stage: num(g(r, 'Stage')),
+        final: numOrText(g(r, 'Final')), mission: num(g(r, 'Mission')), cls: clean(g(r, 'Class')),
+        apiId: api === FLAG ? null : api, sdId: sd === FLAG ? null : sd, name,
+        types: [clean(g(r, 'Type 1')), clean(g(r, 'Type 2'))].filter(Boolean),
+        stats: { hp: num(g(r, 'HP')), atk: num(g(r, 'ATK')), def: num(g(r, 'DEF')), spa: num(g(r, 'SP ATK')), spd: num(g(r, 'SP DEF')), spe: num(g(r, 'SPD')) },
+        total: num(g(r, 'Total')),
+        abilities: [clean(g(r, 'Ability 1')), clean(g(r, 'Ability 2'))].filter(Boolean),
+        hidden: clean(g(r, 'Hidden Ability')),
+        evolution: numOrText(g(r, 'Evolution')), realEvolution: clean(g(r, 'Real Evolution')),
+        spriteId: clean(g(r, 'Sprite ID')) === null ? null : String(clean(g(r, 'Sprite ID'))),
+        customSprite: clean(g(r, 'Custom Sprite'))
+      });
+    }
+    if (flagged) warnings.push(`Pokedex: ${flagged} row(s) have ${FLAG} in an ID column (expected for game-only or grouped rows)`);
+    const noSprite = dex.filter(p => !p.spriteId && !p.customSprite).map(p => p.name);
+    if (noSprite.length) warnings.push(`No sprite yet (add a Custom Sprite): ${noSprite.join(', ')}`);
+    counts.Pokedex = dex.length;
+    files['pokedex.js'] = js(`Pokédex (${dex.length})`, 'POKEDEX_DATA', dex,
+`const POKEDEX = {};
+POKEDEX_DATA.forEach(p => { POKEDEX[p.name] = p; });
+function getPokemon(name) { return POKEDEX[name] || null; }
+
+// Sprite URLs: your Custom Sprite first, else official artwork (shiny folder for shinies).
+// HOME renders are the fallback (use spriteFallbackUrl in an <img onerror>).
+const SPRITE_BASE = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/';
+function spriteUrl(p, shiny) {
+  if (!p) return null;
+  if (p.customSprite) return p.customSprite;
+  if (!p.spriteId) return null;
+  return SPRITE_BASE + 'official-artwork/' + (shiny ? 'shiny/' : '') + p.spriteId + '.png';
+}
+function spriteFallbackUrl(p, shiny) {
+  if (!p || !p.spriteId) return null;
+  return SPRITE_BASE + 'home/' + (shiny ? 'shiny/' : '') + p.spriteId + '.png';
+}`);
+  }
+
+  // ---- Lines ----
+  const L = table('Lines', ['Final', 'Final Pokémon', 'Mission', 'Path (evolution level in brackets)']);
+  const lines = [];
+  if (L) {
+    const g = (r, c) => L.idx[c] === undefined ? null : r[L.idx[c]];
+    for (const r of L.rows) {
+      const pathText = clean(g(r, 'Path (evolution level in brackets)')) || '';
+      const steps = String(pathText).split(' → ').map((s, i, a) => {
+        if (i === a.length - 1) return { name: s.trim(), level: null };
+        const m = s.match(/^(.*) \(([^()]*)\)$/);              // last bracket = evolution level
+        if (!m) return { name: s.trim(), level: null };
+        const lv = Number(m[2]);
+        return { name: m[1].trim(), level: isNaN(lv) ? null : lv };
+      });
+      for (const s of steps) if (P && !names.has(s.name)) warnings.push(`Lines: "${s.name}" (Final ${g(r, 'Final')}) is not a Pokedex Display Name`);
+      lines.push({ final: numOrText(g(r, 'Final')), name: clean(g(r, 'Final Pokémon')), mission: num(g(r, 'Mission')), path: steps, notes: clean(g(r, 'Notes')) });
+    }
+    counts.Lines = lines.length;
+    files['lines.js'] = js(`Evolution lines (${lines.length})`, 'LINES_DATA', lines,
+`const LINES = {};
+LINES_DATA.forEach(l => { LINES[String(l.final)] = l; });
+function getLine(final) { return LINES[String(final)] || null; }
+
+// Which form a Pokémon on this line is at a given level.
+// A step with no evolution level is treated as already passed (it simply is that Pokémon).
+function formAtLevel(final, level) {
+  const line = getLine(final); if (!line) return null;
+  let i = 0;
+  while (i < line.path.length - 1) {
+    const lv = line.path[i].level;
+    if (lv === null || level >= lv) i++; else break;
+  }
+  return line.path[i].name;
+}
+// Next evolution for a player's Pokémon: { into, level } or null. Steps without a level don't happen by leveling.
+function nextEvolution(final, currentName) {
+  const line = getLine(final); if (!line) return null;
+  const i = line.path.findIndex(s => s.name === currentName);
+  if (i < 0 || i >= line.path.length - 1 || line.path[i].level === null) return null;
+  return { into: line.path[i + 1].name, level: line.path[i].level };
+}`);
+  }
+
+  // ---- Story ----
+  const S = table('Story', ['Mission', 'Part', 'Text', 'Link', 'Status']);
+  if (S) {
+    const g = (r, c) => S.idx[c] === undefined ? null : r[S.idx[c]];
+    const story = S.rows.map(r => ({ mission: num(g(r, 'Mission')), part: clean(g(r, 'Part')), text: clean(g(r, 'Text')), link: clean(g(r, 'Link')), status: clean(g(r, 'Status')) }));
+    counts.Story = story.length;
+    files['story.js'] = js(`Story (${story.length} sections)`, 'STORY_DATA', story,
+`function storyFor(mission) { return STORY_DATA.filter(s => s.mission === mission && s.status !== 'Not written yet'); }`);
+  }
+
+  // ---- Starters ----
+  const T = table('Starters', ['Type', 'Final', 'Pick (Final Pokémon)', 'Starts As']);
+  if (T) {
+    const g = (r, c) => T.idx[c] === undefined ? null : r[T.idx[c]];
+    const st = T.rows.map(r => ({ type: clean(g(r, 'Type')), final: numOrText(g(r, 'Final')), pick: clean(g(r, 'Pick (Final Pokémon)')), startsAs: clean(g(r, 'Starts As')) }));
+    for (const s of st) if (P && (!names.has(s.pick) || !names.has(s.startsAs))) warnings.push(`Starters: "${s.pick}" / "${s.startsAs}" not found in Pokedex`);
+    counts.Starters = st.length;
+    files['starters.js'] = js(`Starter choices (${st.length})`, 'STARTERS_DATA', st,
+`function startersForType(type) { return STARTERS_DATA.filter(s => s.type === type); }`);
+  }
+
+  // ---- Looks ----
+  const K = table('Looks', ['Final', 'Pokémon', 'Look APIID', 'Look', 'Sprite (HOME)']);
+  if (K) {
+    const g = (r, c) => K.idx[c] === undefined ? null : r[K.idx[c]];
+    const looks = K.rows.map(r => {
+      const home = clean(g(r, 'Sprite (HOME)')) || '';
+      const sid = (home.split('/').pop() || '').replace('.png', '') || null;
+      return { final: numOrText(g(r, 'Final')), pokemon: clean(g(r, 'Pokémon')), lookId: clean(g(r, 'Look APIID')), look: clean(g(r, 'Look')), spriteId: sid };
+    });
+    counts.Looks = looks.length;
+    files['looks.js'] = js(`Looks (${looks.length})`, 'LOOKS_DATA', looks,
+`function looksFor(final) { return LOOKS_DATA.filter(l => String(l.final) === String(final)); }`);
+  }
+
+  // ---- Moves ----
+  const M = table('Moves', ['APIID', 'ShowdownID', 'Move', 'Type', 'Category', 'Power', 'Accuracy', 'PP', 'Priority', 'Hits', 'Target', 'Effect']);
+  const moveNames = new Set();
+  if (M) {
+    const g = (r, c) => M.idx[c] === undefined ? null : r[M.idx[c]];
+    const TAGS = ['Contact', 'Bite', 'Punch', 'Sound', 'Slicing', 'Wind', 'Dance', 'Pulse', 'Ball/Bomb', 'Powder', 'Heal', 'Recoil'];
+    const moves = M.rows.map(r => {
+      const name = clean(g(r, 'Move')); moveNames.add(name);
+      const acc = clean(g(r, 'Accuracy'));
+      return {
+        apiId: clean(g(r, 'APIID')), sdId: clean(g(r, 'ShowdownID')), name,
+        type: clean(g(r, 'Type')), category: clean(g(r, 'Category')), power: num(g(r, 'Power')),
+        accuracy: acc === '—' ? null : num(acc), alwaysHits: acc === '—',
+        pp: num(g(r, 'PP')), priority: num(g(r, 'Priority')) || 0, hits: numOrText(g(r, 'Hits')),
+        target: clean(g(r, 'Target')), effect: clean(g(r, 'Effect')),
+        tags: TAGS.filter(t => M.idx[t] !== undefined && clean(r[M.idx[t]]))
+      };
+    });
+    counts.Moves = moves.length;
+    files['moves.js'] = js(`Moves (${moves.length})`, 'MOVES_DATA', moves,
+`const MOVES = {};
+MOVES_DATA.forEach(m => { MOVES[m.name] = m; });
+function getMove(name) { return MOVES[name] || null; }`);
+  }
+
+  // ---- Abilities ----
+  const A = table('Abilities', ['APIID', 'ShowdownID', 'Ability', 'Effect']);
+  if (A) {
+    const g = (r, c) => A.idx[c] === undefined ? null : r[A.idx[c]];
+    const ab = A.rows.map(r => ({ apiId: clean(g(r, 'APIID')), sdId: clean(g(r, 'ShowdownID')), name: clean(g(r, 'Ability')), effect: clean(g(r, 'Effect')) }));
+    const abNames = new Set(ab.map(a => a.name));
+    const missing = new Set();
+    dex.forEach(p => [...p.abilities, p.hidden].filter(Boolean).forEach(a => { if (!abNames.has(a)) missing.add(a); }));
+    if (missing.size) warnings.push(`Abilities used in Pokedex but missing from the Abilities tab: ${[...missing].join(', ')}`);
+    counts.Abilities = ab.length;
+    files['abilities.js'] = js(`Abilities (${ab.length})`, 'ABILITIES_DATA', ab,
+`const ABILITIES = {};
+ABILITIES_DATA.forEach(a => { ABILITIES[a.name] = a; });
+function getAbility(name) { return ABILITIES[name] || null; }`);
+  }
+
+  // ---- Movepool (compact: one list per Pokémon) ----
+  const MP = table('Movepool', ['Display Name', 'Move', 'How Learned', 'Level']);
+  if (MP) {
+    const g = (r, c) => MP.idx[c] === undefined ? null : r[MP.idx[c]];
+    const pool = {};
+    const unknownMoves = new Set(), unknownMons = new Set();
+    for (const r of MP.rows) {
+      const who = clean(g(r, 'Display Name')), move = clean(g(r, 'Move')), how = clean(g(r, 'How Learned')) || '';
+      if (P && !names.has(who)) unknownMons.add(who);
+      if (M && !moveNames.has(move)) unknownMoves.add(move);
+      const m = how.match(/^(\S+)(?: \(from (.+)\))?$/);
+      const code = m ? METHOD_CODE[m[1]] : null;
+      if (!code) { warnings.push(`Movepool: unknown "How Learned" value "${how}" (${who} / ${move})`); continue; }
+      const lv = num(g(r, 'Level'));
+      (pool[who] = pool[who] || []).push(move + '|' + code + (lv === null ? '' : lv) + (m[2] ? '|' + m[2] : ''));
+    }
+    if (unknownMons.size) warnings.push(`Movepool rows for names not in Pokedex: ${[...unknownMons].slice(0, 15).join(', ')}${unknownMons.size > 15 ? '…' : ''}`);
+    if (unknownMoves.size) warnings.push(`Movepool moves missing from the Moves tab: ${[...unknownMoves].slice(0, 15).join(', ')}${unknownMoves.size > 15 ? '…' : ''}`);
+    counts.Movepool = MP.rows.length;
+    files['movepool.js'] = js(`Movepool (${MP.rows.length} entries, compact)`, 'MOVEPOOL', pool,
+`// Each entry is "Move|<method><level>|<from>", e.g. "Slam|L47|Bellsprout".
+// Methods: L = Level-up, M = TM, E = Egg, T = Tutor, S = Special.
+const METHOD_NAMES = { L: 'Level-up', M: 'TM', E: 'Egg', T: 'Tutor', S: 'Special' };
+function getMovepool(name) {
+  return (MOVEPOOL[name] || []).map(e => {
+    const [move, ml, from] = e.split('|');
+    const lv = ml.slice(1);
+    return { move, method: METHOD_NAMES[ml[0]], level: lv === '' ? null : Number(lv), from: from || null };
+  });
+}
+// Moves a player may freely pick from: level-up moves (own + inherited) at or below this level.
+function knowableMoves(name, level) {
+  return [...new Set(getMovepool(name).filter(m => m.method === 'Level-up' && m.level <= level).map(m => m.move))];
+}
+// TM-style moves (TM, Egg, Tutor, Special) — added to a Pokémon one at a time.
+function tmStyleMoves(name) {
+  return [...new Set(getMovepool(name).filter(m => m.method !== 'Level-up').map(m => m.move))];
+}`);
+  }
+
+  // ---- cross-checks ----
+  if (P && L) {
+    const lineFinals = new Set(lines.map(l => String(l.final)));
+    const orphan = dex.filter(p => typeof p.final === 'number' && !lineFinals.has(String(p.final))).map(p => p.name);
+    if (orphan.length) warnings.push(`Finals with no row on the Lines tab: ${orphan.join(', ')}`);
+  }
+  return { files, warnings, counts };
+}
+
+// =====================================================================
+// PAGE WIRING
+// =====================================================================
+let workbook = null, result = null;
+const $ = id => document.getElementById(id);
+function setStatus(msg, kind) { const s = $('status'); s.textContent = msg; s.className = 'status ' + kind; }
+
+function loadFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith('.xlsx')) { alert('Please choose an .xlsx file.'); return; }
+  $('fname').textContent = '✔ ' + file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      workbook = XLSX.read(e.target.result, { type: 'array' });
+      $('sheets').innerHTML = workbook.SheetNames.map(n => {
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[n], { header: 1 }).length - 1;
+        return `<span class="chip">${n}: <b>${Math.max(0, rows).toLocaleString()}</b></span>`;
+      }).join('');
+      $('convertCard').style.display = 'block';
+      setStatus('Workbook loaded. Press Convert.', 'info');
+    } catch (err) { alert('Could not read the workbook: ' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+$('file').addEventListener('change', e => loadFile(e.target.files[0]));
+const drop = $('drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag'); loadFile(e.dataTransfer.files[0]); });
+
+$('convertBtn').addEventListener('click', () => {
+  $('convertBtn').disabled = true;
+  setStatus('Converting…', 'info');
+  setTimeout(() => {
+    try {
+      result = convertWorkbook(workbook);
+      const names = Object.keys(result.files);
+      $('files').innerHTML = names.map(n => {
+        const kb = new Blob([result.files[n]]).size / 1024;
+        return `<div class="file" data-n="${n}"><div class="n">📄 ${n}</div><div class="s">${kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb.toFixed(0) + ' KB'}</div></div>`;
+      }).join('');
+      document.querySelectorAll('.file').forEach(el => el.addEventListener('click', () => downloadOne(el.dataset.n)));
+      $('warnings').innerHTML = result.warnings.length
+        ? `<div class="warn"><b>⚠ ${result.warnings.length} note(s)</b><ul>${result.warnings.map(w => `<li>${w}</li>`).join('')}</ul></div>` : '';
+      $('downloadCard').style.display = 'block';
+      setStatus(`✔ Done — ${names.length} files. ` + Object.entries(result.counts).map(([k, v]) => `${k} ${v.toLocaleString()}`).join(' · '), 'ok');
+    } catch (err) { setStatus('Conversion error: ' + err.message, 'bad'); console.error(err); }
+    $('convertBtn').disabled = false;
+  }, 30);
+});
+
+function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
+function downloadOne(n) { save(new Blob([result.files[n]], { type: 'text/javascript' }), n); }
+$('zipBtn').addEventListener('click', async () => {
+  const zip = new JSZip();
+  Object.entries(result.files).forEach(([n, c]) => zip.file(n, c));
+  save(await zip.generateAsync({ type: 'blob' }), 'pokemon-table-data.zip');
+});
+</script>
+</body>
+</html>
