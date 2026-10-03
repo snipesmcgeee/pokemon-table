@@ -13,7 +13,7 @@
     3. DATA (the converter's files in /data)
     4. STORAGE (Firebase, plus a local test mode)
     5. SCREENS (what each screen shows and does)
-    6. HEX GRID PREVIEW (map shapes)
+    6. HEX GRID (map shapes and drawing the board)
     7. START-UP
 -->
 <style>
@@ -102,6 +102,33 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .toast.show { opacity: 1; }
 .list-row { display: flex; gap: 8px; align-items: center; }
 .list-row input { flex: 1; }
+/* Map board */
+.board { width: 100%; height: auto; max-height: 72vh; background: var(--surface-2); border-radius: 12px; display: block; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.board.mini { height: 150px; aspect-ratio: auto !important; pointer-events: none; }
+.board.tappable g[data-k] { cursor: pointer; }
+.board .cell { fill: var(--surface); stroke: var(--line); stroke-width: .8; }
+.board.tappable g[data-k]:hover .cell { stroke: var(--muted); }
+.board .cell.blocked { fill: var(--ink); opacity: .72; }
+.board .cell.start { fill: var(--ok-soft); stroke: var(--ok); }
+.board .cell.ghost { fill: transparent; stroke: var(--muted); stroke-dasharray: 1.5 1.5; opacity: .55; }
+.board .sym, .board .tok { pointer-events: none; }
+.board .symbg { fill: var(--surface); }
+.board .tok polygon { stroke: rgba(0,0,0,.35); stroke-width: .8; }
+.board .tok.mine polygon { stroke: var(--ink); stroke-width: 1.6; }
+.board .tok text { fill: #fff; font-weight: 800; text-anchor: middle; dominant-baseline: central; font-family: inherit; }
+.board .sel { fill: none; stroke: var(--accent); stroke-width: 2.2; pointer-events: none; }
+.sw { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 8px; color: #fff; font-weight: 800; font-size: .85rem; flex: none; }
+.sw.big { width: 44px; height: 44px; font-size: 1.2rem; border-radius: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px 0 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 600; cursor: pointer; }
+.chip.on { border-color: var(--accent); background: var(--accent-soft); }
+.swatch { width: 44px; height: 44px; border-radius: 12px; border: 3px solid transparent; cursor: pointer; }
+.swatch.on { border-color: var(--ink); }
+.swatch:disabled { opacity: .25; cursor: not-allowed; }
+.tbadge { display: inline-block; width: 30px; height: 30px; border-radius: 50%; background-size: auto 100%; background-position: left center; background-repeat: no-repeat; flex: none; vertical-align: middle; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .9rem; }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 6px; vertical-align: -2px; border: 1px solid var(--line); }
+.legend .start { background: var(--ok-soft); border-color: var(--ok); } .legend .blocked { background: var(--ink); opacity: .72; } .legend .ghost { border-style: dashed; border-color: var(--muted); }
+details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
 @media (max-width: 560px) { .wide-only { display: none; } .two { grid-template-columns: 1fr; } h1 { font-size: 1.45rem; } .mission-num { font-size: 2rem; } }
@@ -143,7 +170,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 
 <script type="module">
 // ═══ 4. STORAGE ════════════════════════════════════════════════════════
-// Everything shared (campaigns, players, later Pokémon and battles) lives in Firebase.
+// Everything shared (campaigns, missions, the map library) lives in Firebase.
 // Add ?local to the address to use a pretend database stored only on this device —
 // handy for testing screens without touching the real data.
 const FIREBASE_VERSION = '12.19.0';
@@ -157,19 +184,35 @@ const firebaseConfig = {
 };
 const LOCAL_MODE = new URLSearchParams(location.search).has('local');
 
-// Both storage types offer the same four actions, so the screens don't care which is in use.
+// Both storage types offer the same small set of actions on "paths" such as
+//   campaigns/abc            (one campaign)
+//   campaigns/abc/missions/0 (that campaign's Mission 0: its map copy and token spots)
+//   maps/xyz                 (one map in the shared library)
+// update() accepts dotted names like "tokens.p1" to change one piece without touching the
+// rest — that's what lets two phones move two tokens at the same moment safely.
 function makeLocalDB() {
-  const KEY = 'pt-local-campaigns';
+  const KEY = 'pt-local-db';
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
   const listeners = new Set();
   const write = all => { localStorage.setItem(KEY, JSON.stringify(all)); listeners.forEach(f => f()); };
+  window.addEventListener('storage', e => { if (e.key === KEY) listeners.forEach(f => f()); }); // other tabs
+  const DEL = { __delete: true };
+  const isChild = (p, col) => p.startsWith(col + '/') && !p.slice(col.length + 1).includes('/');
+  const setDotted = (obj, dotted, val) => {
+    const ks = dotted.split('.'); let o = obj;
+    ks.slice(0, -1).forEach(k => { if (typeof o[k] !== 'object' || o[k] === null) o[k] = {}; o = o[k]; });
+    if (val === DEL) delete o[ks.at(-1)]; else o[ks.at(-1)] = val;
+  };
+  const watch = f => { listeners.add(f); f(); return () => listeners.delete(f); };
   return {
-    kind: 'Test mode',
+    kind: 'Test mode', DEL,
     async check() { return true; },
-    watchCampaigns(cb) { const f = () => cb(Object.entries(read()).map(([id, c]) => ({ id, ...c }))); listeners.add(f); f(); return () => listeners.delete(f); },
-    async createCampaign(data) { const all = read(); const id = 'c' + Date.now().toString(36); all[id] = { ...data, createdAt: Date.now() }; write(all); return id; },
-    watchCampaign(id, cb) { const f = () => { const c = read()[id]; cb(c ? { id, ...c } : null); }; listeners.add(f); f(); return () => listeners.delete(f); },
-    async updateCampaign(id, patch) { const all = read(); all[id] = { ...all[id], ...patch }; write(all); }
+    watchCol(col, cb) { return watch(() => { const all = read(); cb(Object.keys(all).filter(p => isChild(p, col)).map(p => ({ id: p.split('/').pop(), ...all[p] }))); }); },
+    watchDoc(path, cb) { return watch(() => { const d = read()[path]; cb(d ? { id: path.split('/').pop(), ...d } : null); }); },
+    async add(col, data) { const all = read(); const id = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); all[col + '/' + id] = { ...data, createdAt: Date.now() }; write(all); return id; },
+    async set(path, data) { const all = read(); all[path] = { ...data, createdAt: Date.now() }; write(all); },
+    async update(path, patch) { const all = read(); if (!all[path]) throw new Error('not-found'); for (const [k, v] of Object.entries(patch)) setDotted(all[path], k, v); write(all); },
+    async remove(path) { const all = read(); delete all[path]; write(all); }
   };
 }
 async function makeFirebaseDB() {
@@ -177,29 +220,38 @@ async function makeFirebaseDB() {
   const { initializeApp } = await import(base + 'firebase-app.js');
   const fs = await import(base + 'firebase-firestore.js');
   const db = fs.getFirestore(initializeApp(firebaseConfig));
-  const campaigns = fs.collection(db, 'campaigns');
+  const ref = path => fs.doc(db, path);
+  const fail = e => setStatus('bad', 'Firebase error: ' + e.code);
   return {
-    kind: 'Firebase',
-    async check() { await fs.getDocs(fs.query(campaigns, fs.limit(1))); return true; },
-    watchCampaigns(cb) { return fs.onSnapshot(campaigns, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => setStatus('bad', 'Firebase error: ' + e.code)); },
-    async createCampaign(data) { const ref = await fs.addDoc(campaigns, { ...data, createdAt: fs.serverTimestamp() }); return ref.id; },
-    watchCampaign(id, cb) { return fs.onSnapshot(fs.doc(db, 'campaigns', id), d => cb(d.exists() ? { id: d.id, ...d.data() } : null), e => setStatus('bad', 'Firebase error: ' + e.code)); },
-    async updateCampaign(id, patch) { await fs.updateDoc(fs.doc(db, 'campaigns', id), patch); }
+    kind: 'Firebase', DEL: fs.deleteField(),
+    async check() { await fs.getDocs(fs.query(fs.collection(db, 'campaigns'), fs.limit(1))); return true; },
+    watchCol(col, cb) { return fs.onSnapshot(fs.collection(db, col), s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), fail); },
+    watchDoc(path, cb) { return fs.onSnapshot(ref(path), d => cb(d.exists() ? { id: d.id, ...d.data() } : null), fail); },
+    async add(col, data) { return (await fs.addDoc(fs.collection(db, col), { ...data, createdAt: fs.serverTimestamp() })).id; },
+    async set(path, data) { await fs.setDoc(ref(path), { ...data, createdAt: fs.serverTimestamp() }); },
+    async update(path, patch) { await fs.updateDoc(ref(path), patch); },
+    async remove(path) { await fs.deleteDoc(ref(path)); }
   };
 }
 let DB = null;
 let unwatch = null;   // stops the previous screen's live updates when we move on
+const CAMP = cid => 'campaigns/' + cid;
+const MISSION = (cid, m) => `campaigns/${cid}/missions/${m}`;
+const once = path => new Promise(res => { let u = null, done = false; u = DB.watchDoc(path, d => { if (done) return; done = true; res(d); setTimeout(() => u?.()); }); if (done) u?.(); });
+const millis = t => t?.toMillis ? t.toMillis() : (typeof t === 'number' ? t : 0);
+const saveErr = e => toast('Could not save: ' + (e.code || e.message));
 
 // ═══ 5. SCREENS ════════════════════════════════════════════════════════
 const app = document.getElementById('app');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 window.go = hash => { location.hash = hash; };
 function setStatus(kind, text, extra = '') { document.getElementById('status').innerHTML = `<span class="dot ${kind}"></span>${esc(text)}<span class="wide-only">${esc(extra)}</span>`; }
-function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 2400); }
 const dataOK = () => typeof POKEDEX_DATA !== 'undefined' && typeof STORY_DATA !== 'undefined';
 const myIdKey = cid => 'pt-me-' + cid;  // which person this device is, per campaign
 
 const DICE = { physical: 'Physical dice', app: 'App dice' };
+const MAPMODES = { physical: 'Physical table map', app: 'In-app hex map' };
 const SHAPES = {
   rectangle: { label: 'Rectangle', fields: [['w', 'Width', 12], ['h', 'Height', 9]] },
   hexagon:   { label: 'Big hexagon', fields: [['r', 'Rings from center', 5]] },
@@ -209,8 +261,22 @@ const SHAPES = {
   cross:     { label: 'Cross', fields: [['arm', 'Arm length', 4], ['aw', 'Arm width', 3]] },
   custom:    { label: 'Custom paint', fields: [['w', 'Start width', 12], ['h', 'Start height', 9]] }
 };
-const mapSummary = s => s?.mapMode === 'app'
-  ? `In-app map · ${SHAPES[s.grid?.shape]?.label || ''} (${s.grid?.hexes || 0} hexes)` : 'Physical table map';
+// The 18 types, numbered the way PokeAPI numbers them (1 = Normal … 18 = Fairy).
+const TYPES = ['Normal', 'Fighting', 'Flying', 'Poison', 'Ground', 'Rock', 'Bug', 'Ghost', 'Steel', 'Fire', 'Water', 'Grass', 'Electric', 'Psychic', 'Ice', 'Dragon', 'Dark', 'Fairy'];
+const typeIconUrl = id => `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/types/generation-viii/sword-shield/${id}.png`;
+// Player token colors. New players get the next unused one; players can change theirs.
+const PALETTE = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00897b', '#d81b60', '#6d4c41', '#3949ab', '#7cb342'];
+const colorOf = (c, pid) => c.colors?.[pid] || PALETTE[Math.max(0, (c.players || []).findIndex(p => p.id === pid)) % PALETTE.length];
+function initialsOf(players) {   // "K" for Kyle; two letters when two players share a first letter
+  const out = {};
+  for (const p of players) {
+    const first = (p.name || '?')[0].toUpperCase();
+    const clash = players.some(o => o !== p && (o.name || '?')[0].toUpperCase() === first);
+    out[p.id] = clash ? (p.name.slice(0, 2)[0].toUpperCase() + (p.name[1] || '').toLowerCase()) : first;
+  }
+  return out;
+}
+const typeBadge = id => `<span class="tbadge" style="background-image:url('${typeIconUrl(id)}')" title="${TYPES[id - 1]}"></span>`;
 
 // ---- Home: campaign list ----
 function screenHome() {
@@ -228,17 +294,16 @@ function screenHome() {
       <div class="card camp" onclick="go('#/c/${c.id}')">
         <h3>${esc(c.name)}${c.archived ? ' <span class="pill">Archived</span>' : ''}</h3>
         <div class="muted">Mission ${c.mission ?? 0} · ${(c.players || []).length} player${(c.players || []).length === 1 ? '' : 's'} · DM ${esc(c.dm?.name)}</div>
-        <div class="muted" style="font-size:.9rem;margin-top:6px">${esc(mapSummary(c.settings))} · ${DICE[c.settings?.dice] || ''}</div>
+        <div class="muted" style="font-size:.9rem;margin-top:6px">${MAPMODES[c.settings?.mapMode] || ''} · ${DICE[c.settings?.dice] || ''}</div>
       </div>`).join('') : `<div class="card empty" style="grid-column:1/-1">No campaigns yet. Tap <b>New Game</b> to start one.</div>`;
   };
   document.getElementById('showArch').onchange = draw;
-  unwatch = DB.watchCampaigns(list => { all = list; draw(); });
+  unwatch = DB.watchCol('campaigns', list => { all = list; draw(); });
 }
 
 // ---- New Game setup ----
 function screenNew() {
-  const st = { players: [''], mapMode: 'physical', shape: 'rectangle', params: {}, dice: 'physical' };
-  for (const [k, s] of Object.entries(SHAPES)) st.params[k] = Object.fromEntries(s.fields.map(f => [f[0], f[2]]));
+  const st = { players: [''], mapMode: 'app', dice: 'physical' };
   app.innerHTML = `
     <h1>New Game</h1><div class="muted" style="margin-bottom:18px">Set up a campaign. Everything here is saved with it.</div>
     <div class="stack">
@@ -251,11 +316,11 @@ function screenNew() {
       <div class="card stack">
         <h2>Map</h2>
         <div class="seg" id="mapSeg"></div>
-        <div id="mapOpts"></div>
+        <div class="muted" id="mapNote"></div>
       </div>
       <div class="card stack">
         <h2>Dice</h2>
-        <div class="muted">The default for each session. It can be changed at the start of any session.</div>
+        <div class="muted">The default for each session. It can be changed from the DM screen at any time.</div>
         <div class="seg" id="diceSeg"></div>
       </div>
       <div class="row"><button class="btn ghost" onclick="go('#/')">Cancel</button><div class="spacer"></div>
@@ -271,25 +336,10 @@ function screenNew() {
   };
   $('addPlayer').onclick = () => { st.players.push(''); drawPlayers(); $('players').querySelector(`[data-i="${st.players.length - 1}"]`).focus(); };
   const drawMap = () => {
-    seg($('mapSeg'), [['physical', 'Physical table map'], ['app', 'In-app hex map']], st.mapMode, v => { st.mapMode = v; drawMap(); });
-    if (st.mapMode !== 'app') { $('mapOpts').innerHTML = `<div class="muted">Positions stay on your table; the app tracks everything else.</div>`; return; }
-    const sh = SHAPES[st.shape], p = st.params[st.shape];
-    $('mapOpts').innerHTML = `
-      <div class="stack">
-        <div class="seg" id="shapeSeg"></div>
-        <div class="two">${sh.fields.map(([k, l]) => `<label class="field"><span>${l}</span><input type="number" min="1" max="40" data-k="${k}" value="${p[k]}"></label>`).join('')}</div>
-        <svg class="hexprev" id="prev"></svg>
-        <div class="muted" id="prevNote"></div>
-      </div>`;
-    seg($('shapeSeg'), Object.entries(SHAPES).map(([k, s]) => [k, s.label]), st.shape, v => { st.shape = v; drawMap(); });
-    $('mapOpts').querySelectorAll('[data-k]').forEach(inp => inp.oninput = () => { p[inp.dataset.k] = Math.max(1, Math.min(40, parseInt(inp.value) || 1)); drawPreview(); });
-    drawPreview();
-  };
-  const drawPreview = () => {
-    const cells = hexShape(st.shape, st.params[st.shape]);
-    renderHexes(document.getElementById('prev'), cells);
-    document.getElementById('prevNote').textContent = `${cells.length} hexes.` + (st.shape === 'custom' ? ' You will be able to paint hexes on or off when the map stage is built.' : '') +
-      ' Blocked hexes, start zones and terrain get placed when the map stage is built.';
+    seg($('mapSeg'), Object.entries(MAPMODES), st.mapMode, v => { st.mapMode = v; drawMap(); });
+    $('mapNote').textContent = st.mapMode === 'app'
+      ? 'Before each mission the DM picks a saved map or builds a new one (shape, size, blocked hexes, start zones).'
+      : 'Positions stay on your table; the app tracks everything else.';
   };
   const drawDice = () => seg($('diceSeg'), Object.entries(DICE), st.dice, v => { st.dice = v; drawDice(); });
   drawPlayers(); drawMap(); drawDice();
@@ -300,27 +350,27 @@ function screenNew() {
     if (!dm) return toast("Enter the DM's name");
     if (!players.length) return toast('Add at least one player');
     if (new Set(players.map(p => p.toLowerCase())).size !== players.length) return toast('Two players have the same name');
-    const settings = { mapMode: st.mapMode, dice: st.dice };
-    if (st.mapMode === 'app') settings.grid = { shape: st.shape, ...st.params[st.shape], hexes: hexShape(st.shape, st.params[st.shape]).length };
     $('create').disabled = true;
     try {
-      const id = await DB.createCampaign({
-        name, dm: { id: 'dm', name: dm }, players: players.map((n, i) => ({ id: 'p' + (i + 1), name: n })),
-        settings, mission: 0, archived: false, takenFinals: []
+      const plist = players.map((n, i) => ({ id: 'p' + (i + 1), name: n }));
+      const id = await DB.add('campaigns', {
+        name, dm: { id: 'dm', name: dm }, players: plist,
+        colors: Object.fromEntries(plist.map((p, i) => [p.id, PALETTE[i % PALETTE.length]])),
+        settings: { mapMode: st.mapMode, dice: st.dice }, mission: 0, archived: false, takenFinals: []
       });
       toast('Campaign created');
       go('#/c/' + id);
-    } catch (e) { toast('Could not save: ' + (e.code || e.message)); $('create').disabled = false; }
+    } catch (e) { saveErr(e); $('create').disabled = false; }
   };
 }
 
 // ---- Who are you? ----
 function screenWho(cid, forcePick) {
   const saved = localStorage.getItem(myIdKey(cid));
-  unwatch = DB.watchCampaign(cid, c => {
+  unwatch = DB.watchDoc(CAMP(cid), c => {
     if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
     if (saved && !forcePick && (saved === 'dm' || (c.players || []).some(p => p.id === saved))) {
-      unwatch?.(); unwatch = null; go(`#/c/${cid}/${saved === 'dm' ? 'dm' : 'p/' + saved}`); return;
+      setTimeout(() => go(`#/c/${cid}/${saved === 'dm' ? 'dm' : 'p/' + saved}`)); return;
     }
     app.innerHTML = `
       <h1>${esc(c.name)}</h1><div class="muted" style="margin-bottom:18px">Who are you? This device will remember.</div>
@@ -335,6 +385,29 @@ function screenWho(cid, forcePick) {
   });
 }
 
+// ---- Shared pieces for the live map (DM and players) ----
+// "found" records which type symbols have been reached: { typeId: playerId }.
+// Landing on a symbol claims it (max 2 per player); the symbol then disappears.
+const foundBy = (mis, pid) => Object.entries(mis.found || {}).filter(([, p]) => p === pid).map(([t]) => +t);
+function movePatch(mis, pid, key) {
+  const patch = { ['tokens.' + pid]: key };
+  const tid = Object.entries(mis.symbols || {}).find(([t, k]) => k === key && !mis.found?.[t])?.[0];
+  if (tid && foundBy(mis, pid).length < 2) patch['found.' + tid] = pid;
+  return { patch, claimed: patch['found.' + tid] ? +tid : null };
+}
+function canStand(mis, key, pid) {   // a hex a token may move to
+  if (!mis.cells.includes(key) || (mis.blocked || []).includes(key)) return false;
+  return !Object.entries(mis.tokens || {}).some(([p, k]) => k === key && p !== pid);
+}
+function boardOpts(c, mis, extra = {}) {
+  const found = mis.found || {};
+  return {
+    cells: mis.cells, blocked: mis.blocked, starts: mis.starts,
+    symbols: Object.fromEntries(Object.entries(mis.symbols || {}).filter(([t]) => !found[t])),
+    tokens: mis.tokens || {}, players: c.players || [], colorOf: pid => colorOf(c, pid), ...extra
+  };
+}
+
 // ---- DM console (shared display) ----
 function storyHTML(mission) {
   if (!dataOK()) return `<div class="muted">Game data not loaded.</div>`;
@@ -346,9 +419,51 @@ function storyHTML(mission) {
     ${s.link ? `<p><a class="btn small" href="${esc(s.link)}" target="_blank" rel="noopener">▶ Open link</a></p>` : ''}`).join('');
 }
 function screenDM(cid) {
-  unwatch = DB.watchCampaign(cid, c => {
+  let c = null, mis, misNum = null, misUnwatch = null, sel = null, storyOpen = true;
+  const stopAll = () => { campUnwatch?.(); misUnwatch?.(); };
+  const drawMapArea = () => {
+    const el = document.getElementById('mapArea'); if (!el) return;
+    if (c.settings?.mapMode !== 'app') { el.innerHTML = ''; return; }
+    if (mis === undefined) { el.innerHTML = `<div class="card muted">Loading map…</div>`; return; }
+    if (!mis) {
+      el.innerHTML = `<div class="card row"><div><h2 style="margin:0">Map</h2><div class="muted">No map set up for Mission ${c.mission ?? 0} yet.</div></div>
+        <div class="spacer"></div><button class="btn primary" onclick="go('#/c/${cid}/dm/map')">Set up map</button></div>`;
+      return;
+    }
+    const inits = initialsOf(c.players || []);
+    const off = (c.players || []).filter(p => !mis.tokens?.[p.id]);
+    const found = Object.entries(mis.found || {});
+    el.innerHTML = `<div class="card stack">
+      <div class="row"><h2 style="margin:0">Map · ${esc(mis.name)}</h2><div class="spacer"></div>
+        <button class="btn small" id="chgMap">Change map</button></div>
+      <div class="muted" id="hint">${sel ? 'Tap a hex to move the selected token, or tap it again to cancel.' : 'Tap a token, then tap where it goes. Players can also move their own on their phones.'}</div>
+      ${off.length ? `<div class="row"><span class="muted">Not on the map:</span>${off.map(p => `<button class="chip ${sel === 'tray:' + p.id ? 'on' : ''}" data-tray="${p.id}"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)}</button>`).join('')}</div>` : ''}
+      <svg class="board" id="board"></svg>
+      ${found.length ? `<div class="stack" style="--gap:6px"><div style="font-weight:650">Type symbols reached</div>
+        ${found.map(([t, pid]) => `<div class="row">${typeBadge(+t)}<span>${esc((c.players || []).find(p => p.id === pid)?.name || '?')} reached <b>${TYPES[t - 1]}</b></span><div class="spacer"></div><button class="btn small ghost" data-undo="${t}">Undo</button></div>`).join('')}
+        <div class="muted" style="font-size:.9rem">Choosing the starter from a reached type comes in the next stage.</div></div>` : ''}
+    </div>`;
+    const selKey = sel && !sel.startsWith('tray:') ? mis.tokens?.[sel] : null;
+    renderBoard(document.getElementById('board'), boardOpts(c, mis, { selected: selKey }), key => {
+      const here = Object.entries(mis.tokens || {}).find(([, k]) => k === key)?.[0];
+      if (here && !sel) { sel = here; return drawMapArea(); }
+      if (here && sel === here) { sel = null; return drawMapArea(); }
+      if (!sel) return;
+      const pid = sel.replace('tray:', '');
+      if (!canStand(mis, key, pid)) return toast(here ? 'Another token is there' : 'That hex is blocked');
+      const { patch, claimed } = movePatch(mis, pid, key);
+      sel = null;
+      DB.update(MISSION(cid, misNum), patch).then(() => claimed && toast(`${(c.players || []).find(p => p.id === pid)?.name} reached ${TYPES[claimed - 1]}!`)).catch(saveErr);
+    });
+    el.querySelectorAll('[data-tray]').forEach(b => b.onclick = () => { sel = sel === 'tray:' + b.dataset.tray ? null : 'tray:' + b.dataset.tray; drawMapArea(); });
+    el.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => DB.update(MISSION(cid, misNum), { ['found.' + b.dataset.undo]: DB.DEL }).catch(saveErr));
+    document.getElementById('chgMap').onclick = () => { if (confirm('Replace this mission\'s map? Token positions and reached symbols reset.')) go(`#/c/${cid}/dm/map`); };
+  };
+  const draw = () => {
     if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
     const m = c.mission ?? 0;
+    const inits = initialsOf(c.players || []);
+    const seg = (opts, cur, attr) => `<div class="seg">${opts.map(([v, l]) => `<button aria-pressed="${v === cur}" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
     app.innerHTML = `
       <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)} · DM ${esc(c.dm?.name)}</div><div class="spacer"></div>
         <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Switch person</button></div>
@@ -361,40 +476,264 @@ function screenDM(cid) {
             <button class="btn primary" id="next" ${m >= 100 ? 'disabled' : ''}>Next mission ▶</button>
           </div>
         </div>
-        <div class="card"><h2>Story</h2><div class="story">${storyHTML(m)}</div></div>
+        <details class="card" id="storyBox" ${storyOpen ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>
+        <div id="mapArea"></div>
         <div class="grid">
-          <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div>${esc(p.name)} <span class="muted">· 0 Pokémon</span></div>`).join('')}</div>
-          <div class="card"><h2>Settings</h2><div>${esc(mapSummary(c.settings))}</div><div class="muted">${DICE[c.settings?.dice] || ''} by default</div></div>
-          <div class="card"><h2>Coming next</h2><div class="muted">Starter selection, team setup, then the battle tracker.</div></div>
+          <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div class="row" style="margin-bottom:6px"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)} <span class="muted">· 0 Pokémon</span></div>`).join('')}</div>
+          <div class="card stack"><h2 style="margin:0">Settings</h2>
+            <div><div class="muted" style="margin-bottom:6px">Map</div>${seg(Object.entries(MAPMODES), c.settings?.mapMode, 'map')}</div>
+            <div><div class="muted" style="margin-bottom:6px">Dice</div>${seg(Object.entries(DICE), c.settings?.dice, 'dice')}</div></div>
+          <div class="card"><h2>Coming next</h2><div class="muted">Starter selection from reached types, team setup, then the battle tracker.</div></div>
         </div>
         <div class="row"><div class="spacer"></div>
           <button class="btn small" id="arch">${c.archived ? 'Restore campaign' : 'Archive campaign'}</button></div>
       </div>`;
-    const set = n => DB.updateCampaign(cid, { mission: n }).catch(e => toast('Could not save: ' + (e.code || e.message)));
-    document.getElementById('prev').onclick = () => set(m - 1);
-    document.getElementById('next').onclick = () => set(m + 1);
+    const setM = n => DB.update(CAMP(cid), { mission: n }).catch(saveErr);
+    document.getElementById('prev').onclick = () => setM(m - 1);
+    document.getElementById('next').onclick = () => setM(m + 1);
+    document.getElementById('storyBox').ontoggle = e => { storyOpen = e.target.open; };
+    app.querySelectorAll('[data-map]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { 'settings.mapMode': b.dataset.map }).catch(saveErr));
+    app.querySelectorAll('[data-dice]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { 'settings.dice': b.dataset.dice }).catch(saveErr));
     document.getElementById('arch').onclick = async () => {
       if (!c.archived && !confirm(`Archive "${c.name}"? It will be hidden from the campaign list (you can restore it).`)) return;
-      await DB.updateCampaign(cid, { archived: !c.archived }); toast(c.archived ? 'Restored' : 'Archived');
+      await DB.update(CAMP(cid), { archived: !c.archived }).catch(saveErr); toast(c.archived ? 'Restored' : 'Archived');
     };
+    drawMapArea();
+  };
+  const campUnwatch = DB.watchDoc(CAMP(cid), camp => {
+    c = camp;
+    if (c && (c.mission ?? 0) !== misNum) {        // mission changed: follow the new mission's map
+      misUnwatch?.(); misNum = c.mission ?? 0; mis = undefined; sel = null;
+      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { mis = d; drawMapArea(); });
+    }
+    draw();
   });
+  unwatch = stopAll;
+}
+
+// ---- Map setup: pick from the library, edit a copy, or build a new one ----
+function screenMapSetup(cid) {
+  let c = null, view = 'library', ed = null, libUnwatch = null;
+  unwatch = () => libUnwatch?.();
+  const m = () => c.mission ?? 0;
+  const freshEditor = (src) => {
+    const shape = src?.shape || 'rectangle';
+    const params = {};
+    for (const [k, s] of Object.entries(SHAPES)) params[k] = Object.fromEntries(s.fields.map(f => [f[0], f[2]]));
+    if (src?.params) params[shape] = { ...params[shape], ...src.params };
+    ed = {
+      fromId: src?.id || null, fromName: src?.name || '', name: src?.name || `Mission ${m()} map`, shape, params,
+      cells: new Set(src?.cells || hexShape(shape, params[shape]).map(hk)),
+      blocked: new Set(src?.blocked || []), starts: new Set(src?.starts || []),
+      symbols: { ...(src?.symbols || {}) }, useSymbols: src ? Object.keys(src.symbols || {}).length > 0 : m() === 0,
+      tool: 'block', pick: null, dirty: !src
+    };
+    if (!src && ed.useSymbols) scatter();
+  };
+  const scatter = () => {
+    const free = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k));
+    for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
+    ed.symbols = {};
+    TYPES.forEach((_, i) => { if (free[i]) ed.symbols[i + 1] = free[i]; });
+    if (free.length < TYPES.length) toast(`Only room for ${free.length} of 18 type symbols`);
+  };
+  const symAt = key => Object.entries(ed.symbols).find(([, k]) => k === key)?.[0];
+  const draw = () => {
+    if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)} · Mission ${m()}</div><div class="spacer"></div>
+        <button class="btn small ghost" onclick="go('#/c/${cid}/dm')">Back to DM screen</button></div>
+      <h1>Map for Mission ${m()}</h1>
+      <div class="seg" style="margin:14px 0 18px" id="viewSeg">
+        <button aria-pressed="${view === 'library'}" data-v="library">Saved maps</button>
+        <button aria-pressed="${view === 'editor'}" data-v="editor">${ed ? (ed.fromId ? 'Editing: ' + esc(ed.fromName) : 'New map') : '＋ New map'}</button>
+      </div>
+      <div id="body"></div>`;
+    app.querySelectorAll('#viewSeg button').forEach(b => b.onclick = () => { view = b.dataset.v; if (view === 'editor' && !ed) freshEditor(null); draw(); });
+    view === 'library' ? drawLibrary() : drawEditor();
+  };
+  const drawLibrary = () => {
+    const body = document.getElementById('body');
+    body.innerHTML = `<div class="muted">Loading…</div>`;
+    libUnwatch?.();
+    libUnwatch = DB.watchCol('maps', maps => {
+      if (view !== 'library' || !document.getElementById('body')) return;
+      maps.sort((a, b) => millis(b.createdAt) - millis(a.createdAt));
+      body.innerHTML = maps.length ? `<div class="muted" style="margin-bottom:12px">Maps saved from any campaign. Tap one to use or edit it — the mission gets its own copy.</div><div class="grid" id="lib">${maps.map(mp => `
+        <div class="card camp" data-id="${mp.id}">
+          <svg class="board mini" data-prev="${mp.id}"></svg>
+          <div class="row" style="margin-top:10px"><h3 style="margin:0">${esc(mp.name)}</h3><div class="spacer"></div>
+            <button class="icon-btn" title="Delete from library" data-del="${mp.id}">🗑</button></div>
+          <div class="muted" style="font-size:.9rem">${SHAPES[mp.shape]?.label || ''} · ${(mp.cells || []).length} hexes${Object.keys(mp.symbols || {}).length ? ' · type symbols' : ''}</div>
+          ${mp.lastUsed ? `<div class="muted" style="font-size:.85rem">Last used: ${esc(mp.lastUsed)}</div>` : ''}
+        </div>`).join('')}</div>`
+        : `<div class="card empty">No saved maps yet. Tap <b>＋ New map</b> to build the first one.</div>`;
+      maps.forEach(mp => { const s = body.querySelector(`[data-prev="${mp.id}"]`); s && renderBoard(s, { cells: mp.cells || [], blocked: mp.blocked, starts: mp.starts, symbols: mp.symbols }); });
+      body.querySelectorAll('[data-id]').forEach(card => card.onclick = e => {
+        const mp = maps.find(x => x.id === card.dataset.id);
+        if (e.target.closest('[data-del]')) {
+          if (confirm(`Delete "${mp.name}" from the library? Missions already using it keep their copy.`)) DB.remove('maps/' + mp.id).catch(saveErr);
+          return;
+        }
+        libUnwatch?.(); libUnwatch = null;
+        freshEditor(mp); view = 'editor'; draw();
+      });
+    });
+  };
+  const drawEditor = () => {
+    libUnwatch?.(); libUnwatch = null;
+    const body = document.getElementById('body');
+    const sh = SHAPES[ed.shape], p = ed.params[ed.shape];
+    const tools = [['block', 'Blocked'], ['start', 'Start zone'], ['hex', 'Add / remove hex'], ...(ed.useSymbols ? [['symbol', 'Move type symbol']] : [])];
+    const hints = { block: 'Tap hexes to block or unblock them.', start: 'Tap hexes to mark where players start.', hex: 'Tap a hex to remove it; tap a dashed hex to add it back.', symbol: ed.pick ? 'Now tap an empty hex to move it there.' : 'Tap a type symbol, then tap where it should go.' };
+    body.innerHTML = `<div class="stack">
+      <div class="card stack">
+        <div class="row"><h2 style="margin:0">Shape &amp; size</h2><div class="spacer"></div><span class="muted">${ed.cells.size} hexes</span></div>
+        <div class="seg" id="shapeSeg">${Object.entries(SHAPES).map(([k, s]) => `<button aria-pressed="${k === ed.shape}" data-v="${k}">${s.label}</button>`).join('')}</div>
+        <div class="two">${sh.fields.map(([k, l]) => `<label class="field"><span>${l}</span><input type="number" min="1" max="40" data-k="${k}" value="${p[k]}"></label>`).join('')}</div>
+        <div class="muted" style="font-size:.9rem">Changing the shape or size starts the hexes over.</div>
+      </div>
+      <div class="card stack">
+        <div class="seg" id="toolSeg">${tools.map(([k, l]) => `<button aria-pressed="${k === ed.tool}" data-v="${k}">${l}</button>`).join('')}</div>
+        <div class="muted">${hints[ed.tool]}</div>
+        <svg class="board" id="edBoard"></svg>
+        <div class="row">
+          <label class="row" style="cursor:pointer"><input type="checkbox" id="useSym" ${ed.useSymbols ? 'checked' : ''}> Type symbols (starter chase)</label>
+          <div class="spacer"></div>
+          ${ed.useSymbols ? `<button class="btn small" id="rescatter">🎲 Scatter again</button>` : ''}
+        </div>
+        <div class="legend muted"><span><i class="lg start"></i>Start zone</span><span><i class="lg blocked"></i>Blocked</span><span><i class="lg ghost"></i>Removed</span></div>
+      </div>
+      <div class="card stack">
+        <label class="field"><span>Map name</span><input type="text" id="mapName" maxlength="40" value="${esc(ed.name)}"></label>
+        <div class="row"><button class="btn ghost" onclick="go('#/c/${cid}/dm')">Cancel</button><div class="spacer"></div>
+          ${ed.fromId && ed.dirty ? `<button class="btn" id="saveNew">Save as new map &amp; use</button><button class="btn primary" id="saveUpd">Update “${esc(ed.fromName)}” &amp; use</button>`
+            : ed.fromId ? `<button class="btn primary" id="useAsIs">Use for Mission ${m()}</button>`
+            : `<button class="btn primary" id="saveNew">Save to library &amp; use</button>`}
+        </div>
+      </div></div>`;
+    const changed = () => {   // first edit of a saved map: redraw so the "update / save as new" buttons appear
+      ed.dirty = true; drawEditor();
+      const i = document.getElementById('mapName'); i.focus(); i.setSelectionRange(i.value.length, i.value.length);
+    };
+    const ghosts = hexShape(ed.shape, p).map(hk).filter(k => !ed.cells.has(k));
+    renderBoard(document.getElementById('edBoard'), {
+      cells: [...ed.cells], ghosts, blocked: [...ed.blocked], starts: [...ed.starts],
+      symbols: ed.useSymbols ? ed.symbols : {}, selected: ed.pick ? ed.symbols[ed.pick] : null
+    }, key => {
+      const sym = symAt(key);
+      if (ed.tool === 'hex') {
+        if (ed.cells.has(key)) {
+          ed.cells.delete(key); ed.blocked.delete(key); ed.starts.delete(key);
+          if (sym) {   // the symbol hops to a random open hex so all 18 types stay on the map
+            const taken = new Set(Object.values(ed.symbols));
+            const open = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k) && !taken.has(k));
+            if (open.length) ed.symbols[sym] = open[Math.floor(Math.random() * open.length)]; else delete ed.symbols[sym];
+          }
+        }
+        else ed.cells.add(key);
+      } else if (ed.tool === 'block' || ed.tool === 'start') {
+        if (!ed.cells.has(key)) return;
+        if (sym && ed.useSymbols) return toast('Move the type symbol off this hex first');
+        const set = ed.tool === 'block' ? ed.blocked : ed.starts, other = ed.tool === 'block' ? ed.starts : ed.blocked;
+        set.has(key) ? set.delete(key) : (set.add(key), other.delete(key));
+      } else if (ed.tool === 'symbol') {
+        if (sym) { ed.pick = ed.pick === sym ? null : sym; }
+        else if (ed.pick) {
+          if (!ed.cells.has(key) || ed.blocked.has(key) || ed.starts.has(key)) return toast('Pick an open hex');
+          ed.symbols[ed.pick] = key; ed.pick = null;
+        } else return;
+      }
+      ed.dirty = true; drawEditor();
+    });
+    body.querySelectorAll('#shapeSeg button').forEach(b => b.onclick = () => { ed.shape = b.dataset.v; resetHexes(); });
+    body.querySelectorAll('[data-k]').forEach(inp => inp.onchange = () => { p[inp.dataset.k] = Math.max(1, Math.min(40, parseInt(inp.value) || 1)); resetHexes(); });
+    body.querySelectorAll('#toolSeg button').forEach(b => b.onclick = () => { ed.tool = b.dataset.v; ed.pick = null; drawEditor(); });
+    document.getElementById('useSym').onchange = e => { ed.useSymbols = e.target.checked; if (ed.useSymbols && !Object.keys(ed.symbols).length) scatter(); if (!ed.useSymbols && ed.tool === 'symbol') ed.tool = 'block'; ed.dirty = true; drawEditor(); };
+    document.getElementById('rescatter')?.addEventListener('click', () => { scatter(); ed.dirty = true; drawEditor(); });
+    document.getElementById('mapName').oninput = e => { ed.name = e.target.value; if (ed.fromId && !ed.dirty) changed(); };
+    document.getElementById('saveNew')?.addEventListener('click', () => save('new'));
+    document.getElementById('saveUpd')?.addEventListener('click', () => save('update'));
+    document.getElementById('useAsIs')?.addEventListener('click', () => save('asis'));
+  };
+  const resetHexes = () => {
+    ed.cells = new Set(hexShape(ed.shape, ed.params[ed.shape]).map(hk));
+    ed.blocked.clear(); ed.starts.clear(); ed.pick = null; ed.dirty = true;
+    if (ed.useSymbols) scatter();
+    drawEditor();
+  };
+  const save = async how => {
+    const name = ed.name.trim();
+    if (!name) return toast('Give the map a name');
+    if (!ed.cells.size) return toast('The map has no hexes');
+    const usedTag = `${c.name} · Mission ${m()}`;
+    const map = {
+      name, shape: ed.shape, params: ed.params[ed.shape], cells: [...ed.cells], blocked: [...ed.blocked],
+      starts: [...ed.starts], symbols: ed.useSymbols ? ed.symbols : {}, lastUsed: usedTag
+    };
+    app.querySelectorAll('button').forEach(b => b.disabled = true);
+    try {
+      let id = ed.fromId;
+      if (how === 'new') id = await DB.add('maps', map);
+      else if (how === 'update') await DB.update('maps/' + id, map);
+      else await DB.update('maps/' + id, { lastUsed: usedTag });
+      // Players start on the start-zone hexes (top to bottom, left to right) if there are enough.
+      const order = [...ed.starts].map(k => k.split(',').map(Number)).sort((a, b) => a[1] - b[1] || (a[0] + a[1] / 2) - (b[0] + b[1] / 2)).map(([q, r]) => q + ',' + r);
+      const tokens = {};
+      (c.players || []).forEach((pl, i) => { if (order[i]) tokens[pl.id] = order[i]; });
+      await DB.set(MISSION(cid, m()), { mapId: id, ...map, tokens, found: {} });
+      toast('Map ready for Mission ' + m());
+      go(`#/c/${cid}/dm`);
+    } catch (e) { saveErr(e); app.querySelectorAll('button').forEach(b => b.disabled = false); }
+  };
+  once(CAMP(cid)).then(camp => { c = camp; draw(); });
 }
 
 // ---- Player home (phone) ----
 function screenPlayer(cid, pid) {
-  unwatch = DB.watchCampaign(cid, c => {
+  let c = null, mis, misNum = null, misUnwatch = null;
+  const draw = () => {
     if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
     const me = (c.players || []).find(p => p.id === pid);
     if (!me) { go(`#/c/${cid}/who`); return; }
+    const mine = colorOf(c, pid);
+    const takenColors = (c.players || []).filter(p => p.id !== pid).map(p => colorOf(c, p.id));
+    const showMap = c.settings?.mapMode === 'app';
+    const myFound = mis ? foundBy(mis, pid) : [];
     app.innerHTML = `
       <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)}</div><div class="spacer"></div>
         <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Not ${esc(me.name)}?</button></div>
-      <h1>Hi, ${esc(me.name)}</h1>
+      <div class="row"><span class="sw big" style="background:${mine}">${esc(initialsOf(c.players)[pid])}</span><h1 style="margin:0">Hi, ${esc(me.name)}</h1></div>
       <div class="stack" style="margin-top:14px">
         <div class="card row"><div><div class="muted" style="font-weight:600">Current mission</div><div class="mission-num">${c.mission ?? 0}</div></div></div>
+        ${showMap ? `<div class="card stack">${!mis ? `<div class="muted">${mis === undefined ? 'Loading map…' : 'Waiting for the DM to set up the map.'}</div>` : `
+          <div class="row"><h2 style="margin:0">Map</h2><div class="spacer"></div><span class="muted" style="font-size:.9rem">Tap a hex to move</span></div>
+          <svg class="board" id="board"></svg>
+          ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached — starter choice comes next stage</span></div>` : ''}`}
+        </div>` : ''}
         <div class="card"><h2>Your team (0)</h2><div class="muted">Starter selection comes next — your two starters will appear here.</div></div>
+        <div class="card stack"><h2 style="margin:0">Your color</h2>
+          <div class="row">${PALETTE.map(col => `<button class="swatch ${col === mine ? 'on' : ''}" style="background:${col}" data-col="${col}" ${takenColors.includes(col) ? 'disabled title="Taken"' : ''}></button>`).join('')}</div></div>
       </div>`;
+    app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
+    if (showMap && mis) {
+      renderBoard(document.getElementById('board'), boardOpts(c, mis, { mine: pid }), key => {
+        if (mis.tokens?.[pid] === key) return;
+        if (!canStand(mis, key, pid)) return toast('You can’t move there');
+        const { patch, claimed } = movePatch(mis, pid, key);
+        DB.update(MISSION(cid, misNum), patch).then(() => claimed && toast(`You reached ${TYPES[claimed - 1]}!`)).catch(saveErr);
+      });
+    }
+  };
+  const campUnwatch = DB.watchDoc(CAMP(cid), camp => {
+    c = camp;
+    if (c && (c.mission ?? 0) !== misNum) {
+      misUnwatch?.(); misNum = c.mission ?? 0; mis = undefined;
+      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { mis = d; draw(); });
+    }
+    draw();
   });
+  unwatch = () => { campUnwatch?.(); misUnwatch?.(); };
 }
 
 // ---- Router: the part of the address after # decides the screen ----
@@ -408,6 +747,7 @@ function route() {
   if ((m = h.match(/^#\/c\/([^/]+)$/))) return screenWho(m[1], false);
   if ((m = h.match(/^#\/c\/([^/]+)\/who$/))) { localStorage.removeItem(myIdKey(m[1])); return screenWho(m[1], true); }
   if ((m = h.match(/^#\/c\/([^/]+)\/dm$/))) return screenDM(m[1]);
+  if ((m = h.match(/^#\/c\/([^/]+)\/dm\/map$/))) return screenMapSetup(m[1]);
   if ((m = h.match(/^#\/c\/([^/]+)\/p\/([^/]+)$/))) return screenPlayer(m[1], m[2]);
   screenHome();
 }
@@ -429,8 +769,9 @@ function applyPrefs() {
 window.openSettings = () => document.getElementById('settings').classList.add('open');
 window.closeSettings = () => document.getElementById('settings').classList.remove('open');
 
-// ═══ 6. HEX GRID PREVIEW ═══════════════════════════════════════════════
-// Hexes use "axial" coordinates (q, r). Each shape returns the list of hexes it contains.
+// ═══ 6. HEX GRID ═══════════════════════════════════════════════════════
+// Hexes use "axial" coordinates (q, r) and are saved as text keys like "3,-1".
+const hk = ([q, r]) => q + ',' + r;
 const hexDist = (q, r) => Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r));
 const offsetToAxial = (col, row) => [col - (row - (row & 1)) / 2, row];
 function hexShape(shape, p) {
@@ -449,16 +790,38 @@ function hexShape(shape, p) {
   }
   return out;
 }
-function renderHexes(svg, cells) {
-  const S = 10, w = Math.sqrt(3) * S;
-  const pts = cells.map(([q, r]) => [w * (q + r / 2), 1.5 * S * r]);
-  if (!pts.length) { svg.innerHTML = ''; return; }
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-  const minX = Math.min(...xs) - w, minY = Math.min(...ys) - S * 1.2, W = Math.max(...xs) - minX + w, H = Math.max(...ys) - minY + S * 1.2;
-  svg.setAttribute('viewBox', `${minX} ${minY} ${W} ${H}`);
-  const corner = i => { const a = Math.PI / 180 * (60 * i - 30); return [S * Math.cos(a), S * Math.sin(a)]; };
-  const shapePts = [0, 1, 2, 3, 4, 5].map(corner);
-  svg.innerHTML = pts.map(([x, y]) => `<polygon points="${shapePts.map(([a, b]) => (x + a).toFixed(1) + ',' + (y + b).toFixed(1)).join(' ')}"/>`).join('');
+// Draws a map into an <svg>. o = { cells, ghosts, blocked, starts, symbols{typeId:key},
+// tokens{playerId:key}, players, colorOf, selected, mine }. onTap(key) runs when a hex is tapped.
+function renderBoard(svg, o, onTap) {
+  const S = 10, W = Math.sqrt(3) * S;
+  const xy = key => { const [q, r] = key.split(',').map(Number); return [W * (q + r / 2), 1.5 * S * r]; };
+  const corner = (s, i) => { const a = Math.PI / 180 * (60 * i - 30); return [s * Math.cos(a), s * Math.sin(a)]; };
+  const poly = (x, y, s) => [0, 1, 2, 3, 4, 5].map(i => corner(s, i)).map(([a, b]) => (x + a).toFixed(2) + ',' + (y + b).toFixed(2)).join(' ');
+  const all = [...(o.cells || []), ...(o.ghosts || [])];
+  if (!all.length) { svg.innerHTML = ''; return; }
+  const pts = all.map(xy), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const minX = Math.min(...xs) - W, minY = Math.min(...ys) - S * 1.3;
+  const vw = Math.max(...xs) - minX + W, vh = Math.max(...ys) - minY + S * 1.3;
+  svg.setAttribute('viewBox', `${minX} ${minY} ${vw} ${vh}`);
+  svg.style.aspectRatio = `${vw} / ${vh}`;   // the box takes the map's own proportions (no empty bands)
+  const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []);
+  let h = `<defs><clipPath id="tclip"><circle cx="22" cy="22" r="21"/></clipPath></defs>`;
+  for (const k of o.ghosts || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell ghost" points="${poly(x, y, S * .96)}"/></g>`; }
+  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : starts.has(k) ? ' start' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
+  for (const [t, k] of Object.entries(o.symbols || {})) {   // type icons: the left (symbol) part of PokeAPI's label art, clipped round
+    const [x, y] = xy(k), d = S * 1.35;
+    h += `<svg class="sym" x="${x - d / 2}" y="${y - d / 2}" width="${d}" height="${d}" viewBox="0 0 44 44"><circle cx="22" cy="22" r="21" class="symbg"/><image href="${typeIconUrl(t)}" width="200" height="44" clip-path="url(#tclip)"/></svg>`;
+  }
+  const inits = initialsOf(o.players || []);
+  for (const [pid, k] of Object.entries(o.tokens || {})) {
+    if (!k || !(o.players || []).some(p => p.id === pid)) continue;
+    const [x, y] = xy(k), two = inits[pid].length > 1;
+    h += `<g class="tok${pid === o.mine ? ' mine' : ''}"><polygon points="${poly(x, y, S * .9)}" fill="${o.colorOf(pid)}"/><text x="${x}" y="${y + .3}" style="font-size:${two ? 6.5 : 9}px">${esc(inits[pid])}</text></g>`;
+  }
+  if (o.selected) { const [x, y] = xy(o.selected); h += `<polygon class="sel" points="${poly(x, y, S * 1.02)}"/>`; }
+  svg.innerHTML = h;
+  svg.onclick = onTap ? e => { const g = e.target.closest('[data-k]'); if (g) onTap(g.dataset.k); } : null;
+  svg.classList.toggle('tappable', !!onTap);
 }
 
 // ═══ 7. START-UP ═══════════════════════════════════════════════════════
