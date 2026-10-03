@@ -141,6 +141,34 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .pips button { min-height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 700; font-size: 1.05rem; cursor: pointer; }
 .pips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .total { font-size: 1.1rem; text-align: right; } .total b { font-size: 1.5rem; }
+.spr { width: 72px; height: 72px; object-fit: contain; flex: none; }
+.spr.sm { width: 48px; height: 48px; } .spr.big { width: 112px; height: 112px; }
+.moncard { display: flex; gap: 14px; align-items: center; }
+.mini-mon { display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 12px; background: var(--surface-2); }
+.picklist { display: grid; gap: 6px; }
+.pickrow { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); }
+.pickrow.now { outline: 2px solid var(--accent); background: var(--accent-soft); }
+.pickgrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.pickcard { display: grid; justify-items: center; gap: 2px; padding: 12px 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; text-align: center; }
+.pickcard:hover { border-color: var(--accent); }
+.pickcard small { color: var(--muted); font-size: .78rem; }
+.types { display: flex; gap: 4px; justify-content: center; margin-top: 4px; }
+.tchip { font-style: normal; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); }
+.steps { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; }
+.steps span { padding: 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: .85rem; font-weight: 600; color: var(--muted); }
+.steps span.on { background: var(--accent); color: var(--accent-ink); } .steps span.done { color: var(--ok); }
+table.stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.stats th, table.stats td { padding: 7px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+table.stats th:first-child { text-align: left; white-space: nowrap; }
+table.stats thead th { font-size: .78rem; color: var(--muted); font-weight: 700; }
+table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { background: var(--bad-soft); }
+.up { color: var(--ok); font-weight: 700; } .down { color: var(--bad); font-weight: 700; }
+.optgrid { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); }
+.opt { display: grid; gap: 2px; text-align: left; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; width: 100%; }
+.opt small { color: var(--muted); font-size: .78rem; font-weight: 600; } .opt b { font-size: 1.05rem; } .opt span { font-size: .88rem; }
+.opt.on { border: 2px solid var(--accent); background: var(--accent-soft); }
+.opt.wide { grid-template-columns: 1fr; }
+@media (max-width: 560px) { .optgrid { grid-template-columns: 1fr; } table.stats th, table.stats td { padding: 6px 3px; font-size: .9rem; } }
 details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
@@ -405,7 +433,7 @@ const foundBy = (mis, pid) => Object.entries(mis.found || {}).filter(([, p]) => 
 function movePatch(mis, pid, key) {
   const patch = { ['tokens.' + pid]: key };
   const tid = Object.entries(mis.symbols || {}).find(([t, k]) => k === key && !mis.found?.[t])?.[0];
-  if (tid && foundBy(mis, pid).length < 2) patch['found.' + tid] = pid;
+  if (tid && foundBy(mis, pid).length < 2) { patch['found.' + tid] = pid; patch['foundAt.' + tid] = Date.now(); }
   return { patch, claimed: patch['found.' + tid] ? +tid : null };
 }
 function canStand(mis, key, pid) {   // a hex a token may move to
@@ -421,13 +449,60 @@ function boardOpts(c, mis, extra = {}) {
   };
 }
 
+// ---- Pokémon rules: stats, natures, abilities ----
+const PLAYER = (cid, pid) => `campaigns/${cid}/players/${pid}`;   // one record per player: { team: [...] }
+const STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+const STAT_LABEL = { hp: 'HP', atk: 'ATK', def: 'DEF', spa: 'SP ATK', spd: 'SP DEF', spe: 'SPD' };
+// The 25 natures in the games' standard order. D100: 1–4 Hardy, 5–8 Lonely, … 97–100 Quirky.
+// Each block of five raises one stat (ATK, DEF, SPD, SP ATK, SP DEF) and lowers each in turn.
+const NATURE_NAMES = ['Hardy', 'Lonely', 'Brave', 'Adamant', 'Naughty', 'Bold', 'Docile', 'Relaxed', 'Impish', 'Lax',
+  'Timid', 'Hasty', 'Serious', 'Jolly', 'Naive', 'Modest', 'Mild', 'Quiet', 'Bashful', 'Rash', 'Calm', 'Gentle', 'Sassy', 'Careful', 'Quirky'];
+const NATURE_ORDER = ['atk', 'def', 'spe', 'spa', 'spd'];
+function natureInfo(name) {
+  const i = NATURE_NAMES.indexOf(name), up = NATURE_ORDER[Math.floor(i / 5)], down = NATURE_ORDER[i % 5];
+  return up === down ? { name, up: null, down: null } : { name, up, down };
+}
+const natureFromD100 = n => NATURE_NAMES[Math.floor((n - 1) / 4)];
+const natureTag = name => { const x = natureInfo(name); return x.up ? `<span class="up">+${STAT_LABEL[x.up]}</span> <span class="down">−${STAT_LABEL[x.down]}</span>` : '<span class="muted">neutral</span>'; };
+// D100 → ability: 91–100 hidden; regular abilities split 1–90 (1–45 / 46–90). No hidden ability: regulars split 1–100.
+function abilityFromD100(p, n) {
+  const regs = p.abilities || [];
+  if (p.hidden && n >= 91) return { name: p.hidden, slot: 'H' };
+  const span = p.hidden ? 90 : 100;
+  if (regs.length >= 2) return n <= span / 2 ? { name: regs[0], slot: '1' } : { name: regs[1], slot: '2' };
+  return regs[0] ? { name: regs[0], slot: '1' } : { name: p.hidden, slot: 'H' };
+}
+// The main-series stat formula (rounded down at each step, as in the games).
+function calcStat(key, base, iv, ev, level, nature) {
+  const core = Math.floor((2 * base + iv + Math.floor(ev / 4)) * level / 100);
+  if (key === 'hp') return base === 1 ? 1 : core + level + 10;
+  const n = natureInfo(nature || 'Hardy'), pct = n.up === key ? 110 : n.down === key ? 90 : 100;
+  return Math.floor((core + 5) * pct / 100);
+}
+const STEP_NAMES = { ivs: 'Roll IVs', nature: 'Choose nature', ability: 'Choose ability', moves: 'Choose moves', done: 'Ready' };
+function monImg(name, shiny, cls = 'spr') {
+  const p = getPokemon(name), u = spriteUrl(p, shiny), f = spriteFallbackUrl(p, shiny);
+  return u ? `<img class="${cls}" src="${u}" alt="${esc(name)}" loading="lazy" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${f}'}">` : `<div class="${cls}"></div>`;
+}
+// Starter picks go in the order types were claimed during the chase.
+const claimOrder = mis => Object.entries(mis?.found || {}).map(([t, pid]) => ({ tid: +t, pid, at: mis.foundAt?.[t] ?? +t })).sort((a, b) => a.at - b.at).map(({ tid, pid }) => ({ tid, pid }));
+const starterChoices = (c, tid) => startersForType(TYPES[tid - 1]).filter(s => !(c.takenFinals || []).includes(s.final));
+function pickOrderHTML(c, d) {   // numbered list: who picks, from which type, and what they took
+  const inits = initialsOf(c.players || []);
+  return `<div class="picklist">${d.order.map((o, i) => {
+    const pk = d.picks?.[i];
+    return `<div class="pickrow ${d.active && i === d.turn ? 'now' : ''}"><span class="muted">${i + 1}</span><span class="sw" style="background:${colorOf(c, o.pid)}">${esc(inits[o.pid])}</span>
+      <span>${esc(nameOf(c, o.pid))}</span>${typeBadge(o.tid)}<span class="spacer"></span>${pk ? `<b>${esc(pk.species)}</b>` : d.active && i === d.turn ? '<span class="muted">picking…</span>' : '<span class="muted">—</span>'}</div>`;
+  }).join('')}</div>`;
+}
+
 // ---- Dice: one roll screen for every roll in the game ----
 // rollDice({ title, dice: [6, 12, 20], mode: 'app' | 'physical' }) opens the roll screen and
 // resolves to { values: [...], total } — or null if closed before rolling.
 //   App dice: the app rolls (using the browser's secure random numbers); once rolled it's final.
 //   Physical dice: the player taps what each real die shows (D100 gets a number box).
 const randInt = n => { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; };
-function rollDice({ title, dice, mode }) {
+function rollDice({ title, dice, mode, showTotal = true }) {
   return new Promise(resolve => {
     const vals = dice.map(() => null);
     let rolled = false, rolling = false;
@@ -445,7 +520,7 @@ function rollDice({ title, dice, mode }) {
           : dice.map((d, i) => `<div><div style="font-weight:650;margin-bottom:6px">D${d}</div>${d <= 20
               ? `<div class="pips">${Array.from({ length: d }, (_, n) => `<button data-i="${i}" data-n="${n + 1}" aria-pressed="${vals[i] === n + 1}">${n + 1}</button>`).join('')}</div>`
               : `<input type="number" inputmode="numeric" min="1" max="${d}" data-in="${i}" value="${vals[i] ?? ''}" placeholder="1–${d}">`}</div>`).join('')}
-        ${dice.length > 1 ? `<div class="total">Total <b id="diceTotal">${full() ? total() : '–'}</b></div>` : ''}
+        ${dice.length > 1 && showTotal ? `<div class="total">Total <b id="diceTotal">${full() ? total() : '–'}</b></div>` : ''}
         <div class="row"><div class="spacer"></div>${app_
           ? (rolled ? `<button class="btn primary" data-ok>OK</button>` : `<button class="btn primary" data-roll ${rolling ? 'disabled' : ''}>🎲 Roll</button>`)
           : `<button class="btn primary" data-ok ${full() ? '' : 'disabled'}>Use this roll</button>`}</div>
@@ -537,8 +612,52 @@ function storyHTML(mission) {
     ${s.link ? `<p><a class="btn small" href="${esc(s.link)}" target="_blank" rel="noopener">▶ Open link</a></p>` : ''}`).join('');
 }
 function screenDM(cid) {
-  let c = null, mis, misNum = null, misUnwatch = null, sel = null, storyOpen = true;
-  const stopAll = () => { campUnwatch?.(); misUnwatch?.(); };
+  let c = null, mis, misNum = null, misUnwatch = null, sel = null, storyOpen = true, teams = {};
+  const stopAll = () => { campUnwatch?.(); misUnwatch?.(); teamUnwatch?.(); };
+  const teamUnwatch = DB.watchCol(`campaigns/${cid}/players`, list => { teams = Object.fromEntries(list.map(d => [d.id, d.team || []])); if (c) draw(); });
+  const drawStarters = () => {   // Mission 0: claim order → pick order, picks, then each player's setup progress
+    const el = document.getElementById('starterArea'); if (!el) return;
+    if ((c.mission ?? 0) !== 0 || mis === undefined) { el.innerHTML = ''; return; }
+    const d = mis?.draft, claims = claimOrder(mis), chaseOn = !!mis?.chase?.active;
+    let h = `<div class="card stack"><h2 style="margin:0">Starters</h2>`;
+    if (!d) {
+      h += claims.length ? `<div class="muted">Pick order follows the order types were claimed.</div>${pickOrderHTML(c, { order: claims, active: false, picks: [] })}`
+        : `<div class="muted">No types claimed yet.</div>`;
+      h += `<div class="row"><button class="btn primary" id="startDraft" ${!claims.length || chaseOn ? 'disabled' : ''}>▶ Start starter picks</button>${chaseOn ? '<span class="muted">Finish the chase first</span>' : ''}</div>
+        ${c.settings?.mapMode === 'app' && !mis ? '' : `<details><summary class="muted" style="cursor:pointer">Record a claim by hand (for the physical map)</summary>
+          <div class="row" style="margin-top:10px"><select id="clP" style="width:auto">${(c.players || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+          <select id="clT" style="width:auto">${TYPES.map((t, i) => mis?.found?.[i + 1] ? '' : `<option value="${i + 1}">${t}</option>`).join('')}</select>
+          <button class="btn small" id="clAdd">Add claim</button></div></details>`}`;
+    } else {
+      h += pickOrderHTML(c, d);
+      h += d.active ? `<div>Waiting for <b>${esc(nameOf(c, d.order[d.turn].pid))}</b> to pick a <b>${TYPES[d.order[d.turn].tid - 1]}</b> starter.</div>`
+        : `<div class="banner ok">All starters picked. Players are setting them up on their phones.</div>`;
+      const mons = (c.players || []).flatMap(p => (teams[p.id] || []).map(m => ({ p, m })));
+      if (mons.length) h += `<div class="grid" style="--min:200px">${mons.map(({ p, m }) => `<div class="mini-mon">${monImg(m.species, m.shiny, 'spr sm')}<div><b>${esc(m.species)}</b><div class="muted" style="font-size:.85rem">${esc(p.name)} · ${STEP_NAMES[m.step]}${m.step === 'done' ? ' ✓' : ''}</div></div></div>`).join('')}</div>`;
+      if (d.picks?.length) h += `<div class="row"><div class="spacer"></div><button class="btn small ghost" id="undoPick">Undo last pick</button></div>`;
+    }
+    el.innerHTML = h + '</div>';
+    const upd = patch => DB.update(MISSION(cid, misNum), patch);
+    document.getElementById('startDraft')?.addEventListener('click', () => upd({ draft: { active: true, order: claims, turn: 0, picks: [] } }).catch(saveErr));
+    document.getElementById('clAdd')?.addEventListener('click', async () => {
+      const pid = document.getElementById('clP').value, tid = document.getElementById('clT').value;
+      if (!tid) return;
+      if (foundBy(mis || {}, pid).length >= 2) return toast(`${nameOf(c, pid)} already has 2 types`);
+      try {
+        if (!mis) await DB.set(MISSION(cid, misNum), { name: 'Physical map', cells: [], blocked: [], starts: [], symbols: {}, tokens: {}, found: { [tid]: pid }, foundAt: { [tid]: Date.now() } });
+        else await upd({ ['found.' + tid]: pid, ['foundAt.' + tid]: Date.now() });
+      } catch (e) { saveErr(e); }
+    });
+    document.getElementById('undoPick')?.addEventListener('click', async () => {
+      const last = d.picks.at(-1);
+      if (!confirm(`Undo ${nameOf(c, last.pid)}'s pick of ${last.species}? Its setup is thrown away and ${nameOf(c, last.pid)} picks again.`)) return;
+      try {
+        await DB.set(PLAYER(cid, last.pid), { team: (teams[last.pid] || []).filter(m => m.uid !== last.uid) });
+        await DB.update(CAMP(cid), { takenFinals: (c.takenFinals || []).filter(f => f !== last.final) });
+        await upd({ 'draft.picks': d.picks.slice(0, -1), 'draft.turn': d.picks.length - 1, 'draft.active': true });
+      } catch (e) { saveErr(e); }
+    });
+  };
   const drawMapArea = () => {
     const el = document.getElementById('mapArea'); if (!el) return;
     if (c.settings?.mapMode !== 'app') { el.innerHTML = ''; return; }
@@ -557,13 +676,13 @@ function screenDM(cid) {
         <button class="btn small" id="chgMap">Change map</button></div>
       ${ch?.active ? `${chaseBar(c, mis)}
         <div class="row"><button class="btn small" id="skipTurn">Skip turn</button>${ch.roll ? `<button class="btn small" id="reRoll">Clear roll</button>` : ''}<div class="spacer"></div><button class="btn small ghost" id="endChase">End chase</button></div>`
-        : `${ch ? chaseBar(c, mis) : ''}${hasSymbols ? `<div class="row"><button class="btn primary" id="startChase">▶ ${ch ? 'Restart' : 'Start'} the chase</button><span class="muted">Random order each round · move up to a D4</span></div>` : ''}`}
+        : `${ch ? chaseBar(c, mis) : ''}${hasSymbols && !mis.draft ? `<div class="row"><button class="btn primary" id="startChase">▶ ${ch ? 'Restart' : 'Start'} the chase</button><span class="muted">Random order each round · move up to a D4</span></div>` : ''}`}
       <div class="muted" id="hint">${sel ? 'Tap a hex to move the selected token, or tap it again to cancel.' : 'Tap a token, then tap where it goes (DM moves don\'t use up a turn). Players move their own on their phones.'}</div>
       ${off.length ? `<div class="row"><span class="muted">Not on the map:</span>${off.map(p => `<button class="chip ${sel === 'tray:' + p.id ? 'on' : ''}" data-tray="${p.id}"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)}</button>`).join('')}</div>` : ''}
       <svg class="board" id="board"></svg>
       ${found.length ? `<div class="stack" style="--gap:6px"><div style="font-weight:650">Type symbols reached</div>
-        ${found.map(([t, pid]) => `<div class="row">${typeBadge(+t)}<span>${esc((c.players || []).find(p => p.id === pid)?.name || '?')} reached <b>${TYPES[t - 1]}</b></span><div class="spacer"></div><button class="btn small ghost" data-undo="${t}">Undo</button></div>`).join('')}
-        <div class="muted" style="font-size:.9rem">Choosing the starter from a reached type comes in the next stage.</div></div>` : ''}
+        ${found.map(([t, pid]) => `<div class="row">${typeBadge(+t)}<span>${esc((c.players || []).find(p => p.id === pid)?.name || '?')} reached <b>${TYPES[t - 1]}</b></span><div class="spacer"></div>${mis.draft ? '' : `<button class="btn small ghost" data-undo="${t}">Undo</button>`}</div>`).join('')}
+      </div>` : ''}
     </div>`;
     const selKey = sel && !sel.startsWith('tray:') ? mis.tokens?.[sel] : null;
     const turnPid = ch?.active ? ch.order[ch.turn] : null;
@@ -580,7 +699,7 @@ function screenDM(cid) {
       DB.update(MISSION(cid, misNum), patch).then(() => claimed && toast(`${(c.players || []).find(p => p.id === pid)?.name} reached ${TYPES[claimed - 1]}!`)).catch(saveErr);
     });
     el.querySelectorAll('[data-tray]').forEach(b => b.onclick = () => { sel = sel === 'tray:' + b.dataset.tray ? null : 'tray:' + b.dataset.tray; drawMapArea(); });
-    el.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => DB.update(MISSION(cid, misNum), { ['found.' + b.dataset.undo]: DB.DEL }).catch(saveErr));
+    el.querySelectorAll('[data-undo]').forEach(b => b.onclick = () => DB.update(MISSION(cid, misNum), { ['found.' + b.dataset.undo]: DB.DEL, ['foundAt.' + b.dataset.undo]: DB.DEL }).catch(saveErr));
     const upd = patch => DB.update(MISSION(cid, misNum), patch).catch(saveErr);
     document.getElementById('startChase')?.addEventListener('click', () => {
       const pool = shuffle((c.players || []).map(p => p.id).filter(pid => stillChasing(mis, mis.found || {}, pid)));
@@ -613,12 +732,13 @@ function screenDM(cid) {
         </div>
         <details class="card" id="storyBox" ${storyOpen ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>
         <div id="mapArea"></div>
+        <div id="starterArea"></div>
         <div class="grid">
-          <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div class="row" style="margin-bottom:6px"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)} <span class="muted">· 0 Pokémon</span></div>`).join('')}</div>
+          <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div class="row" style="margin-bottom:6px"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)} <span class="muted">· ${(teams[p.id] || []).length} Pokémon</span></div>`).join('')}</div>
           <div class="card stack"><h2 style="margin:0">Settings</h2>
             <div><div class="muted" style="margin-bottom:6px">Map</div>${seg(Object.entries(MAPMODES), c.settings?.mapMode, 'map')}</div>
             <div><div class="muted" style="margin-bottom:6px">Dice</div>${seg(Object.entries(DICE), c.settings?.dice, 'dice')}</div></div>
-          <div class="card"><h2>Coming next</h2><div class="muted">Starter selection from reached types, team setup, then the battle tracker.</div></div>
+          <div class="card"><h2>Coming next</h2><div class="muted">Team and between-mission screens, then the battle tracker.</div></div>
         </div>
         <div class="row"><div class="spacer"></div>
           <button class="btn small" id="arch">${c.archived ? 'Restore campaign' : 'Archive campaign'}</button></div>
@@ -633,13 +753,13 @@ function screenDM(cid) {
       if (!c.archived && !confirm(`Archive "${c.name}"? It will be hidden from the campaign list (you can restore it).`)) return;
       await DB.update(CAMP(cid), { archived: !c.archived }).catch(saveErr); toast(c.archived ? 'Restored' : 'Archived');
     };
-    drawMapArea();
+    drawMapArea(); drawStarters();
   };
   const campUnwatch = DB.watchDoc(CAMP(cid), camp => {
     c = camp;
     if (c && (c.mission ?? 0) !== misNum) {        // mission changed: follow the new mission's map
       misUnwatch?.(); misNum = c.mission ?? 0; mis = undefined; sel = null;
-      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { mis = d; drawMapArea(); });
+      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { mis = d; drawMapArea(); drawStarters(); });
     }
     draw();
   });
@@ -826,7 +946,34 @@ function screenMapSetup(cid) {
 
 // ---- Player home (phone) ----
 function screenPlayer(cid, pid) {
-  let c = null, mis, misNum = null, misUnwatch = null;
+  let c = null, mis, misNum = null, misUnwatch = null, team = [], picking = false;
+  const teamUnwatch = DB.watchDoc(PLAYER(cid, pid), d => { team = d?.team || []; if (c) draw(); });
+  const draftCard = () => {   // Mission 0 starter picks, in claim order
+    const d = mis?.draft; if (!d) return '';
+    const cur = d.active ? d.order[d.turn] : null;
+    let h = `<div class="card stack"><h2 style="margin:0">Starter picks</h2>${pickOrderHTML(c, d)}`;
+    if (cur && cur.pid === pid) {
+      const list = starterChoices(c, cur.tid);
+      h += `<div class="yourturn"><div><b>Your pick!</b> Choose a ${TYPES[cur.tid - 1]} starter. It starts at level 1 and is always shiny.</div></div>
+        <div class="pickgrid">${list.map(s => `<button class="pickcard" data-final="${s.final}">${monImg(s.startsAs, true)}<b>${esc(s.startsAs)}</b><small>→ ${esc(s.pick)}</small>
+          <span class="types">${(getPokemon(s.startsAs)?.types || []).map(t => `<i class="tchip">${t}</i>`).join('')}</span></button>`).join('')}</div>`;
+    } else if (cur) h += `<div class="muted">Waiting for <b>${esc(nameOf(c, cur.pid))}</b> to pick a ${TYPES[cur.tid - 1]} starter.</div>`;
+    return h + '</div>';
+  };
+  const teamCard = () => {
+    const draftOn = !!mis?.draft?.active;
+    if (!team.length) return `<div class="card"><h2>Your team (0)</h2><div class="muted">${mis?.draft ? 'Your starters will appear here as you pick them.' : 'Claim two types in the chase; then you pick a starter from each.'}</div></div>`;
+    return `<div class="card stack"><h2 style="margin:0">Your team (${team.length})</h2>${team.map(m => {
+      const p = getPokemon(m.species);
+      return `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;min-width:0">
+        <div><b style="font-size:1.1rem">${esc(m.species)}</b> ${m.shiny ? '<span class="pill">★ Shiny</span>' : ''}<div class="muted" style="font-size:.9rem">Lv ${m.level} · ${(p?.types || []).join(' / ')} · becomes ${esc(m.finalName)}</div></div>
+        ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
+            <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}</div><div>${m.moves.map(esc).join(' · ')}</div></div>`
+          : draftOn ? `<div class="muted">Setup opens once everyone has picked.</div>`
+          : `<div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step]}</button></div>`}
+      </div></div>`;
+    }).join('')}</div>`;
+  };
   const draw = () => {
     if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
     const me = (c.players || []).find(p => p.id === pid);
@@ -849,12 +996,31 @@ function screenPlayer(cid, pid) {
               ? `<div><b>You rolled ${mis.chase.roll}.</b> Tap a lit hex to move there.</div><button class="btn" id="stay">Stay here</button>`
               : `<div><b>Your turn!</b> Roll to move.</div><button class="btn primary" id="rollMove">🎲 Roll D4</button>`}</div>` : ''}
           <svg class="board" id="board"></svg>
-          ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached — starter choice comes next stage</span></div>` : ''}`}
+          ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached</span></div>` : ''}`}
         </div>` : ''}
-        <div class="card"><h2>Your team (0)</h2><div class="muted">Starter selection comes next — your two starters will appear here.</div></div>
+        ${draftCard()}
+        ${teamCard()}
         <div class="card stack"><h2 style="margin:0">Your color</h2>
           <div class="row">${PALETTE.map(col => `<button class="swatch ${col === mine ? 'on' : ''}" style="background:${col}" data-col="${col}" ${takenColors.includes(col) ? 'disabled title="Taken"' : ''}></button>`).join('')}</div></div>
       </div>`;
+    app.querySelectorAll('[data-final]').forEach(b => b.onclick = async () => {
+      const d = mis.draft, cur = d?.active && d.order[d.turn];
+      const s = cur && cur.pid === pid && starterChoices(c, cur.tid).find(x => x.final === +b.dataset.final);
+      if (!s || picking) return;
+      if (!confirm(`Pick ${s.startsAs}? It becomes ${s.pick} at the end of its line.`)) return;
+      picking = true;
+      const mon = { uid: 'm' + Date.now().toString(36) + randInt(1e6).toString(36), final: s.final, finalName: s.pick, species: s.startsAs, pickType: s.type,
+        level: 1, shiny: true, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), ivs: null, ivRolls: null,
+        nature: null, natureRolls: null, ability: null, abilitySlot: null, abilityRolls: null, moves: [], step: 'ivs' };
+      try {   // only the current picker can write here, so these steps can't collide
+        await DB.set(PLAYER(cid, pid), { team: [...team, mon] });
+        await DB.update(CAMP(cid), { takenFinals: [...(c.takenFinals || []), s.final] });
+        await DB.update(MISSION(cid, misNum), { 'draft.picks': [...(d.picks || []), { pid, tid: cur.tid, final: s.final, uid: mon.uid, species: s.startsAs }],
+          'draft.turn': d.turn + 1, 'draft.active': d.turn + 1 < d.order.length });
+        toast(`${s.startsAs} joined your team!`);
+      } catch (e) { saveErr(e); }
+      picking = false;
+    });
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
     if (showMap && mis) {
       const reach = myTurn && mis.chase.roll ? reachable(mis, pid, mis.chase.roll) : null;
@@ -888,7 +1054,121 @@ function screenPlayer(cid, pid) {
     }
     draw();
   });
-  unwatch = () => { campUnwatch?.(); misUnwatch?.(); };
+  unwatch = () => { campUnwatch?.(); misUnwatch?.(); teamUnwatch?.(); };
+}
+
+// ---- Starter setup (phone): IVs → nature → ability → moves ----
+// Every roll is saved the moment it's made, so reloading the page can't re-roll it.
+function screenSetup(cid, pid, uid) {
+  let c = null, team = null, natPick = null, abPick = null, movePick = null, busy = false;
+  const mon = () => team?.find(m => m.uid === uid);
+  const save = async patch => {   // replace this Pokémon in the team with its updated version
+    busy = true;
+    try { await DB.set(PLAYER(cid, pid), { team: team.map(m => m.uid === uid ? { ...m, ...patch } : m) }); }
+    catch (e) { saveErr(e); }
+    busy = false;
+  };
+  const statTable = (m, nature) => {
+    const base = getPokemon(m.species)?.stats || {}, fin = getPokemon(m.finalName)?.stats || base, n = natureInfo(nature || 'Hardy');
+    return `<table class="stats"><thead><tr><th></th><th>Base</th><th>IV</th><th>Lv ${m.level}</th><th title="${esc(m.finalName)}">Final base</th><th>Lv 100*</th></tr></thead><tbody>
+      ${STAT_KEYS.map(k => { const iv = m.ivs?.[k] ?? 0, cls = n.up === k ? 'up' : n.down === k ? 'down' : '';
+        return `<tr class="${cls}"><th>${STAT_LABEL[k]}${cls === 'up' ? ' ▲' : cls === 'down' ? ' ▼' : ''}</th><td>${base[k]}</td><td>${m.ivs ? iv : '–'}</td>
+          <td><b>${m.ivs ? calcStat(k, base[k], iv, m.evs?.[k] || 0, m.level, nature) : '–'}</b></td><td>${fin[k]}</td><td><b>${m.ivs ? calcStat(k, fin[k], iv, 0, 100, nature) : '–'}</b></td></tr>`; }).join('')}
+      </tbody></table><div class="muted" style="font-size:.8rem">*Lv 100 projection: ${esc(m.finalName)} with these IVs and no EVs, to show the nature's effect.</div>`;
+  };
+  const draw = () => {
+    const m = mon();
+    if (!c || !team) return;
+    if (!m) { app.innerHTML = `<div class="card empty">Pokémon not found. <a href="#/c/${cid}/p/${pid}">Back</a></div>`; return; }
+    if (m.step === 'done') { go(`#/c/${cid}/p/${pid}`); return; }
+    const p = getPokemon(m.species), mode = c.settings?.dice || 'physical';
+    const steps = ['ivs', 'nature', 'ability', 'moves'];
+    let body = '';
+    if (m.step === 'ivs') {
+      if (m.ivs) body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
+          ${m.ivRolls ? `<table class="stats"><thead><tr><th></th><th>Three rolls (D6+D12+D20)</th><th>IV</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${m.ivRolls[k].map(v => v === Math.max(...m.ivRolls[k]) ? `<b>${v}</b>` : v).join(' · ')}</td><td><b>${m.ivs[k]}</b></td></tr>`).join('')}</tbody></table>`
+            : `<div>${STAT_KEYS.map(k => `${STAT_LABEL[k]} <b>${m.ivs[k]}</b>`).join(' · ')}</div>`}
+          <div class="muted">Best of three for each stat, capped at 31.</div>
+          <div class="row"><div class="spacer"></div><button class="btn primary" id="toNature">Next: nature ▶</button></div></div>`;
+      else if (mode === 'app') body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
+          <div class="muted">Each stat rolls D6+D12+D20 three times and keeps the best (3× advantage), capped at 31.</div>
+          <table class="stats"><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td data-ivr="${k}">–</td></tr>`).join('')}</tbody></table>
+          <div class="row"><div class="spacer"></div><button class="btn primary" id="rollIVs">🎲 Roll all IVs</button></div></div>`;
+      else body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
+          <div class="muted">Roll D6+D12+D20 three times for each stat and enter the <b>best total</b> (3 to 38). Anything over 31 counts as 31.</div>
+          <div class="two">${STAT_KEYS.map(k => `<label class="field"><span>${STAT_LABEL[k]}</span><input type="number" inputmode="numeric" min="3" max="38" data-iv="${k}"></label>`).join('')}</div>
+          <div class="row"><div class="spacer"></div><button class="btn primary" id="saveIVs">Save IVs</button></div></div>`;
+    } else if (m.step === 'nature') {
+      const opts = (m.natureRolls || []).map(n => ({ roll: n, name: natureFromD100(n) }));
+      natPick = natPick ?? opts[0]?.name;
+      body = `<div class="card stack"><h2 style="margin:0">Nature</h2>
+        ${!opts.length ? `<div class="muted">Roll a D100 three times, then keep the nature you like best.</div>
+            <div class="row"><div class="spacer"></div><button class="btn primary" id="rollNat">🎲 Roll nature ×3</button></div>`
+          : `<div class="muted">Tap a nature to preview it in the table, then keep one.</div>
+            <div class="optgrid">${opts.map((o, i) => `<button class="opt ${o.name === natPick ? 'on' : ''}" data-nat="${o.name}"><small>Roll ${o.roll}</small><b>${o.name}</b><span>${natureTag(o.name)}</span></button>`).join('')}</div>`}
+        ${statTable(m, opts.length ? natPick : null)}
+        ${opts.length ? `<div class="row"><div class="spacer"></div><button class="btn primary" id="keepNat">Keep ${esc(natPick)} ▶</button></div>` : ''}</div>`;
+    } else if (m.step === 'ability') {
+      const opts = (m.abilityRolls || []).map(n => ({ roll: n, ...abilityFromD100(p, n) }));
+      abPick = abPick ?? opts[0]?.name;
+      body = `<div class="card stack"><h2 style="margin:0">Ability</h2>
+        <div class="muted">${esc(m.species)} can have ${[...(p.abilities || []), p.hidden ? p.hidden + ' (hidden)' : null].filter(Boolean).map(esc).join(', ')}. D100: 91–100 is the hidden ability.</div>
+        ${!opts.length ? `<div class="row"><div class="spacer"></div><button class="btn primary" id="rollAb">🎲 Roll ability ×3</button></div>`
+          : `<div class="stack">${opts.map(o => `<button class="opt wide ${o.name === abPick ? 'on' : ''}" data-ab="${esc(o.name)}" data-slot="${o.slot}"><small>Roll ${o.roll}${o.slot === 'H' ? ' · Hidden' : ''}</small><b>${esc(o.name)}</b><span class="muted">${esc(getAbility(o.name)?.effect || '')}</span></button>`).join('')}</div>
+            <div class="row"><div class="spacer"></div><button class="btn primary" id="keepAb">Keep ${esc(abPick)} ▶</button></div>`}</div>`;
+    } else if (m.step === 'moves') {
+      const list = knowableMoves(m.species, m.level);
+      movePick = movePick ?? list.slice(0, 4);
+      body = `<div class="card stack"><h2 style="margin:0">Moves</h2>
+        <div class="muted">Pick up to 4 from the level-up moves ${esc(m.species)} knows at level ${m.level}. You can swap them between missions.</div>
+        <div class="stack">${list.map(mv => { const d = getMove(mv) || {};
+          return `<button class="opt wide ${movePick.includes(mv) ? 'on' : ''}" data-mv="${esc(mv)}"><small>${d.type || ''} · ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Always hits' : ''}</small><b>${esc(mv)}</b><span class="muted">${esc(d.effect || '')}</span></button>`; }).join('')}</div>
+        <div class="row"><span class="muted">${movePick.length} / 4 chosen</span><div class="spacer"></div><button class="btn primary" id="keepMoves" ${movePick.length ? '' : 'disabled'}>Finish setup ✓</button></div></div>`;
+    }
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:6px"><button class="btn small ghost" onclick="go('#/c/${cid}/p/${pid}')">◀ Back</button><div class="spacer"></div><span class="muted">${DICE[mode]}</span></div>
+      <div class="moncard">${monImg(m.species, m.shiny, 'spr big')}<div><h1 style="margin:0">${esc(m.species)}</h1>
+        <div class="muted">Lv ${m.level} · ${(p?.types || []).join(' / ')} · ★ Shiny · becomes ${esc(m.finalName)}</div></div></div>
+      <div class="steps">${steps.map((st, i) => `<span class="${st === m.step ? 'on' : steps.indexOf(m.step) > i ? 'done' : ''}">${i + 1}. ${STEP_NAMES[st].replace(/^(Roll|Choose) /, '')}</span>`).join('')}</div>
+      <div class="stack" style="margin-top:14px">${body}</div>`;
+    const $ = id => document.getElementById(id);
+    $('rollIVs')?.addEventListener('click', () => {
+      if (busy) return; $('rollIVs').disabled = true;
+      const rolls = Object.fromEntries(STAT_KEYS.map(k => [k, [0, 1, 2].map(() => 3 + randInt(6) + randInt(12) + randInt(20))]));
+      let n = 0; const spin = setInterval(() => {      // a short tumble, then the real numbers
+        STAT_KEYS.forEach(k => { const el = app.querySelector(`[data-ivr="${k}"]`); if (el) el.textContent = [0, 1, 2].map(() => 3 + randInt(6) + randInt(12) + randInt(20)).join(' · '); });
+        if (++n >= 10) { clearInterval(spin); save({ ivRolls: rolls, ivs: Object.fromEntries(STAT_KEYS.map(k => [k, Math.min(31, Math.max(...rolls[k]))])) }); }
+      }, 60);
+    });
+    $('saveIVs')?.addEventListener('click', () => {
+      const ivs = {};
+      for (const k of STAT_KEYS) { const v = parseInt(app.querySelector(`[data-iv="${k}"]`).value); if (!(v >= 3 && v <= 38)) return toast(`Enter ${STAT_LABEL[k]} (3 to 38)`); ivs[k] = Math.min(31, v); }
+      save({ ivs, ivRolls: null });
+    });
+    $('toNature')?.addEventListener('click', () => save({ step: 'nature' }));
+    $('rollNat')?.addEventListener('click', async () => {
+      const r = await rollDice({ title: 'Nature rolls', dice: [100, 100, 100], mode, showTotal: false });
+      if (r && !mon().natureRolls) { natPick = null; save({ natureRolls: r.values }); }
+    });
+    app.querySelectorAll('[data-nat]').forEach(b => b.onclick = () => { natPick = b.dataset.nat; draw(); });
+    $('keepNat')?.addEventListener('click', () => save({ nature: natPick, step: 'ability' }));
+    $('rollAb')?.addEventListener('click', async () => {
+      const r = await rollDice({ title: 'Ability rolls', dice: [100, 100, 100], mode, showTotal: false });
+      if (r && !mon().abilityRolls) { abPick = null; save({ abilityRolls: r.values }); }
+    });
+    app.querySelectorAll('[data-ab]').forEach(b => b.onclick = () => { abPick = b.dataset.ab; draw(); });
+    $('keepAb')?.addEventListener('click', () => { const o = app.querySelector(`[data-ab="${CSS.escape(abPick)}"]`); save({ ability: abPick, abilitySlot: o?.dataset.slot || '1', step: 'moves' }); });
+    app.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
+      const mv = b.dataset.mv;
+      if (movePick.includes(mv)) movePick = movePick.filter(x => x !== mv);
+      else if (movePick.length >= 4) return toast('4 moves max. Tap one to remove it first.');
+      else movePick = [...movePick, mv];
+      draw();
+    });
+    $('keepMoves')?.addEventListener('click', async () => { await save({ moves: movePick, step: 'done' }); toast(`${mon()?.species ?? 'Pokémon'} is ready!`); });
+  };
+  once(CAMP(cid)).then(camp => { c = camp; draw(); });
+  unwatch = DB.watchDoc(PLAYER(cid, pid), d => { team = d?.team || []; draw(); });
 }
 
 // ---- Router: the part of the address after # decides the screen ----
@@ -904,6 +1184,7 @@ function route() {
   if ((m = h.match(/^#\/c\/([^/]+)\/dm$/))) return screenDM(m[1]);
   if ((m = h.match(/^#\/c\/([^/]+)\/dm\/map$/))) return screenMapSetup(m[1]);
   if ((m = h.match(/^#\/c\/([^/]+)\/p\/([^/]+)$/))) return screenPlayer(m[1], m[2]);
+  if ((m = h.match(/^#\/c\/([^/]+)\/p\/([^/]+)\/setup\/([^/]+)$/))) return screenSetup(m[1], m[2], m[3]);
   screenHome();
 }
 
