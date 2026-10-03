@@ -169,6 +169,42 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .opt.on { border: 2px solid var(--accent); background: var(--accent-soft); }
 .opt.wide { grid-template-columns: 1fr; }
 @media (max-width: 560px) { .optgrid { grid-template-columns: 1fr; } table.stats th, table.stats td { padding: 6px 3px; font-size: .9rem; } }
+.board .cell.wild { fill: color-mix(in srgb, #8e24aa 14%, var(--surface)); stroke: #8e24aa; }
+.legend .wild { background: color-mix(in srgb, #8e24aa 14%, var(--surface)); border-color: #8e24aa; }
+.board .unit { pointer-events: none; } .board .ubg { fill: var(--surface); stroke-width: 1.6; } .board .unit.mine .ubg { stroke-width: 2.4; }
+.board .hpbg { fill: rgba(0,0,0,.25); }
+.spr.xs { width: 32px; height: 32px; }
+.wildgrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.wildcard { display: grid; gap: 8px; padding: 12px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); opacity: .75; }
+.wildcard.on { opacity: 1; border: 2px solid #8e24aa; background: var(--surface); }
+.statline { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: .82rem; color: var(--muted); } .statline b { color: var(--ink); }
+.partyrow { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); opacity: .6; }
+.partyrow.on { opacity: 1; border-color: var(--accent); background: var(--accent-soft); }
+.icon-btn.star { color: #e0a400; font-size: 1.4rem; }
+.turnpanel { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius); border: 2px solid var(--accent); background: var(--surface); box-shadow: var(--shadow); }
+.turnnow { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: var(--surface-2); }
+.movegrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.targets { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.target { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
+.target.on { border: 2px solid var(--accent); background: var(--accent-soft); }
+.target .types { justify-content: flex-start; }
+.eff { font-size: .8rem; font-weight: 700; margin-top: 2px; } .eff.e2, .eff.e4 { color: var(--ok); } .eff.e05, .eff.e025 { color: #c77700; } .eff.e0 { color: var(--bad); }
+.hpbar { display: inline-block; width: 110px; height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; vertical-align: middle; border: 1px solid var(--line); }
+.hpbar i { display: block; height: 100%; } .hpnum { font-size: .8rem; margin-left: 6px; font-variant-numeric: tabular-nums; }
+.unitrow { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 12px; }
+.unitrow[data-edit] { cursor: pointer; } .unitrow[data-edit]:hover { background: var(--surface-2); }
+.unitrow.now { background: var(--accent-soft); } .unitrow.fainted { opacity: .45; }
+.ring { display: inline-flex; border: 3px solid; border-radius: 12px; padding: 1px; flex: none; }
+.log { display: grid; gap: 4px; font-size: .92rem; max-height: 260px; overflow: auto; }
+.orderstrip { font-size: .9rem; } .hint { font-weight: 600; color: var(--accent); }
+.pill.warn { background: var(--warn-soft); color: #8a5a00; font-weight: 600; white-space: normal; }
+.pill.up { background: var(--ok-soft); } .pill.down { background: var(--bad-soft); }
+.pill.st-brn { background: #ffd9c7; color: #a33a00; } .pill.st-par { background: #fff1b8; color: #7a6000; } .pill.st-psn, .pill.st-tox { background: #ead7f7; color: #6a1b9a; }
+.pill.st-slp { background: #dfe4ea; color: #445; } .pill.st-frz { background: #d4f1fb; color: #01579b; }
+.stagegrid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.stagegrid > div { display: flex; align-items: center; gap: 6px; } .stagegrid span { width: 56px; font-weight: 650; font-size: .85rem; } .stagegrid b { width: 28px; text-align: center; }
+.modal-card { max-width: 640px !important; max-height: 92vh; overflow: auto; }
+.tchip.t-Normal{background:#a8a77a;color:#fff}.tchip.t-Fire{background:#ee8130;color:#fff}.tchip.t-Water{background:#6390f0;color:#fff}.tchip.t-Electric{background:#f7d02c;color:#333}.tchip.t-Grass{background:#7ac74c;color:#fff}.tchip.t-Ice{background:#96d9d6;color:#234}.tchip.t-Fighting{background:#c22e28;color:#fff}.tchip.t-Poison{background:#a33ea1;color:#fff}.tchip.t-Ground{background:#e2bf65;color:#333}.tchip.t-Flying{background:#a98ff3;color:#fff}.tchip.t-Psychic{background:#f95587;color:#fff}.tchip.t-Bug{background:#a6b91a;color:#fff}.tchip.t-Rock{background:#b6a136;color:#fff}.tchip.t-Ghost{background:#735797;color:#fff}.tchip.t-Dragon{background:#6f35fc;color:#fff}.tchip.t-Dark{background:#705746;color:#fff}.tchip.t-Steel{background:#b7b7ce;color:#333}.tchip.t-Fairy{background:#d685ad;color:#fff}
 details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
@@ -235,7 +271,7 @@ function makeLocalDB() {
   const KEY = 'pt-local-db';
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
   const listeners = new Set();
-  const write = all => { localStorage.setItem(KEY, JSON.stringify(all)); listeners.forEach(f => f()); };
+  const write = all => { localStorage.setItem(KEY, JSON.stringify(all)); setTimeout(() => listeners.forEach(f => f())); };   // tell screens after the current tap finishes, like Firebase
   window.addEventListener('storage', e => { if (e.key === KEY) listeners.forEach(f => f()); }); // other tabs
   const DEL = { __delete: true };
   const isChild = (p, col) => p.startsWith(col + '/') && !p.slice(col.length + 1).includes('/');
@@ -479,7 +515,7 @@ function calcStat(key, base, iv, ev, level, nature) {
   const n = natureInfo(nature || 'Hardy'), pct = n.up === key ? 110 : n.down === key ? 90 : 100;
   return Math.floor((core + 5) * pct / 100);
 }
-const STEP_NAMES = { ivs: 'Roll IVs', nature: 'Choose nature', ability: 'Choose ability', moves: 'Choose moves', done: 'Ready' };
+const STEP_NAMES = { ivs: 'Roll IVs', nature: 'Choose nature', ability: 'Choose ability', shiny: 'Shiny roll', moves: 'Choose moves', done: 'Ready' };
 function monImg(name, shiny, cls = 'spr') {
   const p = getPokemon(name), u = spriteUrl(p, shiny), f = spriteFallbackUrl(p, shiny);
   return u ? `<img class="${cls}" src="${u}" alt="${esc(name)}" loading="lazy" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${f}'}">` : `<div class="${cls}"></div>`;
@@ -612,9 +648,39 @@ function storyHTML(mission) {
     ${s.link ? `<p><a class="btn small" href="${esc(s.link)}" target="_blank" rel="noopener">▶ Open link</a></p>` : ''}`).join('');
 }
 function screenDM(cid) {
-  let c = null, mis, misNum = null, misUnwatch = null, sel = null, storyOpen = true, teams = {};
-  const stopAll = () => { campUnwatch?.(); misUnwatch?.(); teamUnwatch?.(); };
+  let c = null, mis, misNum = null, misUnwatch = null, sel = null, storyOpen = null, teams = {};
+  const stopAll = () => { campUnwatch?.(); misUnwatch?.(); teamUnwatch?.(); wildUnwatch?.(); };
   const teamUnwatch = DB.watchCol(`campaigns/${cid}/players`, list => { teams = Object.fromEntries(list.map(d => [d.id, d.team || []])); if (c) draw(); });
+  let wildSetups = {};
+  const wildUnwatch = DB.watchCol('wildSetups', list => { wildSetups = Object.fromEntries(list.map(d => [d.id, d])); if (c && (c.mission ?? 0) >= 1 && (mis?.phase || 'setup') === 'setup') drawMapArea(); });
+  const drawMission = el => {   // Missions 1–100: setup → battle → after
+    const N = c.mission;
+    if (mis === undefined) { el.innerHTML = `<div class="card muted">Loading…</div>`; return; }
+    const appMap = c.settings?.mapMode === 'app';
+    if (appMap && !mis?.cells?.length) {
+      el.innerHTML = `<div class="card row"><div><h2 style="margin:0">Map</h2><div class="muted">Set up Mission ${N}'s map first (start zones for players, wild zones for wild Pokémon).</div></div>
+        <div class="spacer"></div><button class="btn primary" onclick="go('#/c/${cid}/dm/map')">Set up map</button></div>`; return;
+    }
+    if (!mis) {
+      el.innerHTML = `<div class="card row"><div><h2 style="margin:0">Mission ${N}</h2><div class="muted">Physical table map: positions stay on your table.</div></div>
+        <div class="spacer"></div><button class="btn primary" id="openSetup">Open mission setup</button></div>`;
+      document.getElementById('openSetup').onclick = () => DB.set(MISSION(cid, N), { phase: 'setup', setup: {} }).catch(saveErr);
+      return;
+    }
+    const phase = mis.phase || 'setup';
+    el.innerHTML = `<div class="stack">${appMap && phase === 'setup' ? `<div class="row"><span class="muted">Map: <b>${esc(mis.name || '')}</b> · ${(mis.starts || []).length} start hexes · ${(mis.wilds || []).length} wild-zone hexes</span><div class="spacer"></div><button class="btn small" onclick="go('#/c/${cid}/dm/map')">Change map</button></div>` : ''}<div id="mBody"></div></div>`;
+    const body = document.getElementById('mBody');
+    const ctx = { c, mis, cid, misNum: N, teams, wildSetups, viewer: 'dm', redraw: drawMapArea };
+    if (phase === 'setup') return missionSetupDM(body, ctx);
+    if (phase === 'battle') return battleView(body, ctx);
+    const b = mis.battle || {};
+    body.innerHTML = `<div class="card stack"><h2 style="margin:0">Mission ${N} complete</h2>
+      <div>${(b.kos || []).length} KOs · ${(b.catches || []).length ? 'Caught: ' + b.catches.map(x => `<b>${esc(x.species)}</b> (${esc(b.names?.[x.pid] || '')})`).join(', ') : 'No catches'}</div>
+      <div class="stack" style="--gap:6px">${(c.players || []).map(p => { const t = teams[p.id] || [];
+        const todo = [t.filter(m => m.step !== 'done').length && `${t.filter(m => m.step !== 'done').length} catch(es) to set up`, t.reduce((a, m) => a + (m.rerolls?.mission === N ? m.rerolls.left + (m.reroll ? 1 : 0) : 0), 0) && 're-rolls left', t.some(m => m.evPending) && 'EVs to place'].filter(Boolean);
+        return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)} <span class="muted">· ${todo.length ? todo.join(' · ') : 'all done ✓'}</span></div>`; }).join('')}</div>
+      <div class="muted">Re-rolls and EVs can also be finished later. When you're ready, tap <b>Next mission ▶</b> at the top.</div></div>`;
+  };
   const drawStarters = () => {   // Mission 0: claim order → pick order, picks, then each player's setup progress
     const el = document.getElementById('starterArea'); if (!el) return;
     if ((c.mission ?? 0) !== 0 || mis === undefined) { el.innerHTML = ''; return; }
@@ -660,6 +726,7 @@ function screenDM(cid) {
   };
   const drawMapArea = () => {
     const el = document.getElementById('mapArea'); if (!el) return;
+    if ((c.mission ?? 0) >= 1) return drawMission(el);
     if (c.settings?.mapMode !== 'app') { el.innerHTML = ''; return; }
     if (mis === undefined) { el.innerHTML = `<div class="card muted">Loading map…</div>`; return; }
     if (!mis) {
@@ -730,7 +797,7 @@ function screenDM(cid) {
             <button class="btn primary" id="next" ${m >= 100 ? 'disabled' : ''}>Next mission ▶</button>
           </div>
         </div>
-        <details class="card" id="storyBox" ${storyOpen ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>
+        <details class="card" id="storyBox" ${(storyOpen ?? mis?.phase !== 'battle') ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>
         <div id="mapArea"></div>
         <div id="starterArea"></div>
         <div class="grid">
@@ -738,7 +805,7 @@ function screenDM(cid) {
           <div class="card stack"><h2 style="margin:0">Settings</h2>
             <div><div class="muted" style="margin-bottom:6px">Map</div>${seg(Object.entries(MAPMODES), c.settings?.mapMode, 'map')}</div>
             <div><div class="muted" style="margin-bottom:6px">Dice</div>${seg(Object.entries(DICE), c.settings?.dice, 'dice')}</div></div>
-          <div class="card"><h2>Coming next</h2><div class="muted">Team and between-mission screens, then the battle tracker.</div></div>
+          <div class="card"><h2>By hand for now</h2><div class="muted">Abilities, and moves tagged "Not automated", are applied by the DM (tap a Pokémon in battle to edit it).</div></div>
         </div>
         <div class="row"><div class="spacer"></div>
           <button class="btn small" id="arch">${c.archived ? 'Restore campaign' : 'Archive campaign'}</button></div>
@@ -779,14 +846,14 @@ function screenMapSetup(cid) {
     ed = {
       fromId: src?.id || null, fromName: src?.name || '', name: src?.name || `Mission ${m()} map`, shape, params,
       cells: new Set(src?.cells || hexShape(shape, params[shape]).map(hk)),
-      blocked: new Set(src?.blocked || []), starts: new Set(src?.starts || []),
+      blocked: new Set(src?.blocked || []), starts: new Set(src?.starts || []), wilds: new Set(src?.wilds || []),
       symbols: { ...(src?.symbols || {}) }, useSymbols: src ? Object.keys(src.symbols || {}).length > 0 : m() === 0,
       tool: 'block', pick: null, dirty: !src
     };
     if (!src && ed.useSymbols) scatter();
   };
   const scatter = () => {
-    const free = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k));
+    const free = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k) && !ed.wilds.has(k));
     for (let i = free.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [free[i], free[j]] = [free[j], free[i]]; }
     ed.symbols = {};
     TYPES.forEach((_, i) => { if (free[i]) ed.symbols[i + 1] = free[i]; });
@@ -819,11 +886,11 @@ function screenMapSetup(cid) {
           <svg class="board mini" data-prev="${mp.id}"></svg>
           <div class="row" style="margin-top:10px"><h3 style="margin:0">${esc(mp.name)}</h3><div class="spacer"></div>
             <button class="icon-btn" title="Delete from library" data-del="${mp.id}">🗑</button></div>
-          <div class="muted" style="font-size:.9rem">${SHAPES[mp.shape]?.label || ''} · ${(mp.cells || []).length} hexes${Object.keys(mp.symbols || {}).length ? ' · type symbols' : ''}</div>
+          <div class="muted" style="font-size:.9rem">${SHAPES[mp.shape]?.label || ''} · ${(mp.cells || []).length} hexes${(mp.wilds || []).length ? ' · wild zones' : ''}${Object.keys(mp.symbols || {}).length ? ' · type symbols' : ''}</div>
           ${mp.lastUsed ? `<div class="muted" style="font-size:.85rem">Last used: ${esc(mp.lastUsed)}</div>` : ''}
         </div>`).join('')}</div>`
         : `<div class="card empty">No saved maps yet. Tap <b>＋ New map</b> to build the first one.</div>`;
-      maps.forEach(mp => { const s = body.querySelector(`[data-prev="${mp.id}"]`); s && renderBoard(s, { cells: mp.cells || [], blocked: mp.blocked, starts: mp.starts, symbols: mp.symbols }); });
+      maps.forEach(mp => { const s = body.querySelector(`[data-prev="${mp.id}"]`); s && renderBoard(s, { cells: mp.cells || [], blocked: mp.blocked, starts: mp.starts, wilds: mp.wilds, symbols: mp.symbols }); });
       body.querySelectorAll('[data-id]').forEach(card => card.onclick = e => {
         const mp = maps.find(x => x.id === card.dataset.id);
         if (e.target.closest('[data-del]')) {
@@ -839,8 +906,8 @@ function screenMapSetup(cid) {
     libUnwatch?.(); libUnwatch = null;
     const body = document.getElementById('body');
     const sh = SHAPES[ed.shape], p = ed.params[ed.shape];
-    const tools = [['block', 'Blocked'], ['start', 'Start zone'], ['hex', 'Add / remove hex'], ...(ed.useSymbols ? [['symbol', 'Move type symbol']] : [])];
-    const hints = { block: 'Tap hexes to block or unblock them.', start: 'Tap hexes to mark where players start.', hex: 'Tap a hex to remove it; tap a dashed hex to add it back.', symbol: ed.pick ? 'Now tap an empty hex to move it there.' : 'Tap a type symbol, then tap where it should go.' };
+    const tools = [['block', 'Blocked'], ['start', 'Start zone'], ['wild', 'Wild zone'], ['hex', 'Add / remove hex'], ...(ed.useSymbols ? [['symbol', 'Move type symbol']] : [])];
+    const hints = { block: 'Tap hexes to block or unblock them.', start: 'Tap hexes to mark where players start.', wild: 'Tap hexes to mark where wild Pokémon start (they fill these first; the DM can still place anywhere).', hex: 'Tap a hex to remove it; tap a dashed hex to add it back.', symbol: ed.pick ? 'Now tap an empty hex to move it there.' : 'Tap a type symbol, then tap where it should go.' };
     body.innerHTML = `<div class="stack">
       <div class="card stack">
         <div class="row"><h2 style="margin:0">Shape &amp; size</h2><div class="spacer"></div><span class="muted">${ed.cells.size} hexes</span></div>
@@ -857,7 +924,7 @@ function screenMapSetup(cid) {
           <div class="spacer"></div>
           ${ed.useSymbols ? `<button class="btn small" id="rescatter">🎲 Scatter again</button>` : ''}
         </div>
-        <div class="legend muted"><span><i class="lg start"></i>Start zone</span><span><i class="lg blocked"></i>Blocked</span><span><i class="lg ghost"></i>Removed</span></div>
+        <div class="legend muted"><span><i class="lg start"></i>Start zone</span><span><i class="lg wild"></i>Wild zone</span><span><i class="lg blocked"></i>Blocked</span><span><i class="lg ghost"></i>Removed</span></div>
       </div>
       <div class="card stack">
         <label class="field"><span>Map name</span><input type="text" id="mapName" maxlength="40" value="${esc(ed.name)}"></label>
@@ -873,36 +940,36 @@ function screenMapSetup(cid) {
     };
     const ghosts = hexShape(ed.shape, p).map(hk).filter(k => !ed.cells.has(k));
     renderBoard(document.getElementById('edBoard'), {
-      cells: [...ed.cells], ghosts, blocked: [...ed.blocked], starts: [...ed.starts],
+      cells: [...ed.cells], ghosts, blocked: [...ed.blocked], starts: [...ed.starts], wilds: [...ed.wilds],
       symbols: ed.useSymbols ? ed.symbols : {}, selected: ed.pick ? ed.symbols[ed.pick] : null
     }, key => {
       const sym = symAt(key);
       if (ed.tool === 'hex') {
         if (ed.cells.has(key)) {
-          ed.cells.delete(key); ed.blocked.delete(key); ed.starts.delete(key);
+          ed.cells.delete(key); ed.blocked.delete(key); ed.starts.delete(key); ed.wilds.delete(key);
           if (sym) {   // the symbol hops to a random open hex so all 18 types stay on the map
             const taken = new Set(Object.values(ed.symbols));
-            const open = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k) && !taken.has(k));
+            const open = [...ed.cells].filter(k => !ed.blocked.has(k) && !ed.starts.has(k) && !ed.wilds.has(k) && !taken.has(k));
             if (open.length) ed.symbols[sym] = open[Math.floor(Math.random() * open.length)]; else delete ed.symbols[sym];
           }
         }
         else ed.cells.add(key);
-      } else if (ed.tool === 'block' || ed.tool === 'start') {
+      } else if (ed.tool === 'block' || ed.tool === 'start' || ed.tool === 'wild') {
         if (!ed.cells.has(key)) return;
         if (sym && ed.useSymbols) return toast('Move the type symbol off this hex first');
-        const set = ed.tool === 'block' ? ed.blocked : ed.starts, other = ed.tool === 'block' ? ed.starts : ed.blocked;
-        set.has(key) ? set.delete(key) : (set.add(key), other.delete(key));
+        const zones = { block: ed.blocked, start: ed.starts, wild: ed.wilds }, set = zones[ed.tool];
+        if (set.has(key)) set.delete(key); else { Object.values(zones).forEach(z => z.delete(key)); set.add(key); }   // a hex is one kind of zone at a time
       } else if (ed.tool === 'symbol') {
         if (sym) { ed.pick = ed.pick === sym ? null : sym; }
         else if (ed.pick) {
-          if (!ed.cells.has(key) || ed.blocked.has(key) || ed.starts.has(key)) return toast('Pick an open hex');
+          if (!ed.cells.has(key) || ed.blocked.has(key) || ed.starts.has(key) || ed.wilds.has(key)) return toast('Pick an open hex');
           ed.symbols[ed.pick] = key; ed.pick = null;
         } else return;
       }
       ed.dirty = true; drawEditor();
     });
     body.querySelectorAll('#shapeSeg button').forEach(b => b.onclick = () => { ed.shape = b.dataset.v; resetHexes(); });
-    body.querySelectorAll('[data-k]').forEach(inp => inp.onchange = () => { p[inp.dataset.k] = Math.max(1, Math.min(40, parseInt(inp.value) || 1)); resetHexes(); });
+    body.querySelectorAll('[data-k]').forEach(inp => inp.onchange = () => { const v = Math.max(1, Math.min(40, parseInt(inp.value) || 1)); if (v === p[inp.dataset.k]) return; p[inp.dataset.k] = v; resetHexes(); });
     body.querySelectorAll('#toolSeg button').forEach(b => b.onclick = () => { ed.tool = b.dataset.v; ed.pick = null; drawEditor(); });
     document.getElementById('useSym').onchange = e => { ed.useSymbols = e.target.checked; if (ed.useSymbols && !Object.keys(ed.symbols).length) scatter(); if (!ed.useSymbols && ed.tool === 'symbol') ed.tool = 'block'; ed.dirty = true; drawEditor(); };
     document.getElementById('rescatter')?.addEventListener('click', () => { scatter(); ed.dirty = true; drawEditor(); });
@@ -913,7 +980,7 @@ function screenMapSetup(cid) {
   };
   const resetHexes = () => {
     ed.cells = new Set(hexShape(ed.shape, ed.params[ed.shape]).map(hk));
-    ed.blocked.clear(); ed.starts.clear(); ed.pick = null; ed.dirty = true;
+    ed.blocked.clear(); ed.starts.clear(); ed.wilds.clear(); ed.pick = null; ed.dirty = true;
     if (ed.useSymbols) scatter();
     drawEditor();
   };
@@ -924,7 +991,7 @@ function screenMapSetup(cid) {
     const usedTag = `${c.name} · Mission ${m()}`;
     const map = {
       name, shape: ed.shape, params: ed.params[ed.shape], cells: [...ed.cells], blocked: [...ed.blocked],
-      starts: [...ed.starts], symbols: ed.useSymbols ? ed.symbols : {}, lastUsed: usedTag
+      starts: [...ed.starts], wilds: [...ed.wilds], symbols: ed.useSymbols ? ed.symbols : {}, lastUsed: usedTag
     };
     app.querySelectorAll('button').forEach(b => b.disabled = true);
     try {
@@ -936,12 +1003,19 @@ function screenMapSetup(cid) {
       const order = [...ed.starts].map(k => k.split(',').map(Number)).sort((a, b) => a[1] - b[1] || (a[0] + a[1] / 2) - (b[0] + b[1] / 2)).map(([q, r]) => q + ',' + r);
       const tokens = {};
       (c.players || []).forEach((pl, i) => { if (order[i]) tokens[pl.id] = order[i]; });
-      await DB.set(MISSION(cid, m()), { mapId: id, ...map, tokens, found: {} });
+      const prev = await once(MISSION(cid, m()));
+      if (prev) await DB.update(MISSION(cid, m()), { mapId: id, ...map, tokens, found: {}, foundAt: {} });   // keep the mission's setup
+      else await DB.set(MISSION(cid, m()), { mapId: id, ...map, tokens, found: {} });
       toast('Map ready for Mission ' + m());
       go(`#/c/${cid}/dm`);
     } catch (e) { saveErr(e); app.querySelectorAll('button').forEach(b => b.disabled = false); }
   };
-  once(CAMP(cid)).then(camp => { c = camp; draw(); });
+  once(CAMP(cid)).then(async camp => {
+    c = camp;
+    const ms = c && await once(MISSION(cid, c.mission ?? 0));
+    if (ms?.phase === 'battle') { app.innerHTML = `<div class="card empty">This mission's battle is under way. End the battle before changing its map. <a href="#/c/${cid}/dm">Back</a></div>`; return; }
+    draw();
+  });
 }
 
 // ---- Player home (phone) ----
@@ -968,7 +1042,7 @@ function screenPlayer(cid, pid) {
       return `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;min-width:0">
         <div><b style="font-size:1.1rem">${esc(m.species)}</b> ${m.shiny ? '<span class="pill">★ Shiny</span>' : ''}<div class="muted" style="font-size:.9rem">Lv ${m.level} · ${(p?.types || []).join(' / ')} · becomes ${esc(m.finalName)}</div></div>
         ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
-            <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}</div><div>${m.moves.map(esc).join(' · ')}</div></div>`
+            <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div></div>`
           : draftOn ? `<div class="muted">Setup opens once everyone has picked.</div>`
           : `<div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step]}</button></div>`}
       </div></div>`;
@@ -980,7 +1054,8 @@ function screenPlayer(cid, pid) {
     if (!me) { go(`#/c/${cid}/who`); return; }
     const mine = colorOf(c, pid);
     const takenColors = (c.players || []).filter(p => p.id !== pid).map(p => colorOf(c, p.id));
-    const showMap = c.settings?.mapMode === 'app';
+    const m0 = (c.mission ?? 0) === 0;
+    const showMap = m0 && c.settings?.mapMode === 'app';   // Mission 0's chase map (Missions 1+ use the battle screen)
     const myFound = mis ? foundBy(mis, pid) : [];
     const chasing = !!mis?.chase?.active, myTurn = chasing && mis.chase.order[mis.chase.turn] === pid;
     app.innerHTML = `
@@ -998,6 +1073,7 @@ function screenPlayer(cid, pid) {
           <svg class="board" id="board"></svg>
           ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached</span></div>` : ''}`}
         </div>` : ''}
+        ${m0 ? '' : '<div id="missionArea"></div>'}
         ${draftCard()}
         ${teamCard()}
         <div class="card stack"><h2 style="margin:0">Your color</h2>
@@ -1022,6 +1098,15 @@ function screenPlayer(cid, pid) {
       picking = false;
     });
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
+    const area = document.getElementById('missionArea');
+    if (area) {
+      const ctx = { c, mis, cid, misNum, pid, team, viewer: pid, redraw: draw };
+      if (mis === undefined) area.innerHTML = '';
+      else if (!mis || (c.settings?.mapMode === 'app' && !mis.cells?.length)) area.innerHTML = `<div class="card muted">Waiting for the DM to set up Mission ${c.mission}.</div>`;
+      else if ((mis.phase || 'setup') === 'setup') missionSetupPlayer(area, ctx);
+      else if (mis.phase === 'battle') battleView(area, ctx);
+      else afterMissionPlayer(area, ctx);
+    }
     if (showMap && mis) {
       const reach = myTurn && mis.chase.roll ? reachable(mis, pid, mis.chase.roll) : null;
       renderBoard(document.getElementById('board'), boardOpts(c, mis, { mine: pid, reach }), key => {
@@ -1082,28 +1167,30 @@ function screenSetup(cid, pid, uid) {
     if (!m) { app.innerHTML = `<div class="card empty">Pokémon not found. <a href="#/c/${cid}/p/${pid}">Back</a></div>`; return; }
     if (m.step === 'done') { go(`#/c/${cid}/p/${pid}`); return; }
     const p = getPokemon(m.species), mode = c.settings?.dice || 'physical';
-    const steps = ['ivs', 'nature', 'ability', 'moves'];
+    const isCatch = m.setupMode === 'catch';   // new catches: one roll each (no 3× advantage), plus a shiny roll
+    const steps = isCatch ? ['ivs', 'nature', 'ability', 'shiny', 'moves'] : ['ivs', 'nature', 'ability', 'moves'];
+    const tries = isCatch ? 1 : 3;
     let body = '';
     if (m.step === 'ivs') {
       if (m.ivs) body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
-          ${m.ivRolls ? `<table class="stats"><thead><tr><th></th><th>Three rolls (D6+D12+D20)</th><th>IV</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${m.ivRolls[k].map(v => v === Math.max(...m.ivRolls[k]) ? `<b>${v}</b>` : v).join(' · ')}</td><td><b>${m.ivs[k]}</b></td></tr>`).join('')}</tbody></table>`
+          ${m.ivRolls ? `<table class="stats"><thead><tr><th></th><th>${isCatch ? 'Roll' : 'Three rolls'} (D6+D12+D20)</th><th>IV</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${m.ivRolls[k].map(v => v === Math.max(...m.ivRolls[k]) ? `<b>${v}</b>` : v).join(' · ')}</td><td><b>${m.ivs[k]}</b></td></tr>`).join('')}</tbody></table>`
             : `<div>${STAT_KEYS.map(k => `${STAT_LABEL[k]} <b>${m.ivs[k]}</b>`).join(' · ')}</div>`}
-          <div class="muted">Best of three for each stat, capped at 31.</div>
+          <div class="muted">${isCatch ? 'One roll per stat' : 'Best of three for each stat'}, capped at 31.</div>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="toNature">Next: nature ▶</button></div></div>`;
       else if (mode === 'app') body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
-          <div class="muted">Each stat rolls D6+D12+D20 three times and keeps the best (3× advantage), capped at 31.</div>
+          <div class="muted">${isCatch ? 'Each stat rolls D6+D12+D20 once' : 'Each stat rolls D6+D12+D20 three times and keeps the best (3× advantage)'}, capped at 31.</div>
           <table class="stats"><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td data-ivr="${k}">–</td></tr>`).join('')}</tbody></table>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="rollIVs">🎲 Roll all IVs</button></div></div>`;
       else body = `<div class="card stack"><h2 style="margin:0">IVs</h2>
-          <div class="muted">Roll D6+D12+D20 three times for each stat and enter the <b>best total</b> (3 to 38). Anything over 31 counts as 31.</div>
+          <div class="muted">${isCatch ? 'Roll D6+D12+D20 once for each stat and enter the <b>total</b>' : 'Roll D6+D12+D20 three times for each stat and enter the <b>best total</b>'} (3 to 38). Anything over 31 counts as 31.</div>
           <div class="two">${STAT_KEYS.map(k => `<label class="field"><span>${STAT_LABEL[k]}</span><input type="number" inputmode="numeric" min="3" max="38" data-iv="${k}"></label>`).join('')}</div>
           <div class="row"><div class="spacer"></div><button class="btn primary" id="saveIVs">Save IVs</button></div></div>`;
     } else if (m.step === 'nature') {
       const opts = (m.natureRolls || []).map(n => ({ roll: n, name: natureFromD100(n) }));
       natPick = natPick ?? opts[0]?.name;
       body = `<div class="card stack"><h2 style="margin:0">Nature</h2>
-        ${!opts.length ? `<div class="muted">Roll a D100 three times, then keep the nature you like best.</div>
-            <div class="row"><div class="spacer"></div><button class="btn primary" id="rollNat">🎲 Roll nature ×3</button></div>`
+        ${!opts.length ? `<div class="muted">${isCatch ? 'Roll a D100 once for its nature.' : 'Roll a D100 three times, then keep the nature you like best.'}</div>
+            <div class="row"><div class="spacer"></div><button class="btn primary" id="rollNat">🎲 Roll nature${isCatch ? '' : ' ×3'}</button></div>`
           : `<div class="muted">Tap a nature to preview it in the table, then keep one.</div>
             <div class="optgrid">${opts.map((o, i) => `<button class="opt ${o.name === natPick ? 'on' : ''}" data-nat="${o.name}"><small>Roll ${o.roll}</small><b>${o.name}</b><span>${natureTag(o.name)}</span></button>`).join('')}</div>`}
         ${statTable(m, opts.length ? natPick : null)}
@@ -1113,9 +1200,14 @@ function screenSetup(cid, pid, uid) {
       abPick = abPick ?? opts[0]?.name;
       body = `<div class="card stack"><h2 style="margin:0">Ability</h2>
         <div class="muted">${esc(m.species)} can have ${[...(p.abilities || []), p.hidden ? p.hidden + ' (hidden)' : null].filter(Boolean).map(esc).join(', ')}. D100: 91–100 is the hidden ability.</div>
-        ${!opts.length ? `<div class="row"><div class="spacer"></div><button class="btn primary" id="rollAb">🎲 Roll ability ×3</button></div>`
+        ${!opts.length ? `<div class="row"><div class="spacer"></div><button class="btn primary" id="rollAb">🎲 Roll ability${isCatch ? '' : ' ×3'}</button></div>`
           : `<div class="stack">${opts.map(o => `<button class="opt wide ${o.name === abPick ? 'on' : ''}" data-ab="${esc(o.name)}" data-slot="${o.slot}"><small>Roll ${o.roll}${o.slot === 'H' ? ' · Hidden' : ''}</small><b>${esc(o.name)}</b><span class="muted">${esc(getAbility(o.name)?.effect || '')}</span></button>`).join('')}</div>
             <div class="row"><div class="spacer"></div><button class="btn primary" id="keepAb">Keep ${esc(abPick)} ▶</button></div>`}</div>`;
+    } else if (m.step === 'shiny') {
+      body = `<div class="card stack"><h2 style="margin:0">Shiny roll</h2>
+        <div class="muted">Roll D6+D12+D20. A total of exactly 3 (all ones) makes it shiny — 1 in 1,440.</div>
+        ${m.shinyRoll == null ? `<div class="row"><div class="spacer"></div><button class="btn primary" id="rollShiny">🎲 Roll for shiny</button></div>`
+          : `<div style="font-size:1.2rem">Rolled <b>${m.shinyRoll}</b> — ${m.shinyRoll === 3 ? '<b>it\'s shiny! ★</b>' : 'not shiny.'}</div><div class="row"><div class="spacer"></div><button class="btn primary" id="toMoves">Next: moves ▶</button></div>`}</div>`;
     } else if (m.step === 'moves') {
       const list = knowableMoves(m.species, m.level);
       movePick = movePick ?? list.slice(0, 4);
@@ -1128,13 +1220,14 @@ function screenSetup(cid, pid, uid) {
     app.innerHTML = `
       <div class="row" style="margin-bottom:6px"><button class="btn small ghost" onclick="go('#/c/${cid}/p/${pid}')">◀ Back</button><div class="spacer"></div><span class="muted">${DICE[mode]}</span></div>
       <div class="moncard">${monImg(m.species, m.shiny, 'spr big')}<div><h1 style="margin:0">${esc(m.species)}</h1>
-        <div class="muted">Lv ${m.level} · ${(p?.types || []).join(' / ')} · ★ Shiny · becomes ${esc(m.finalName)}</div></div></div>
-      <div class="steps">${steps.map((st, i) => `<span class="${st === m.step ? 'on' : steps.indexOf(m.step) > i ? 'done' : ''}">${i + 1}. ${STEP_NAMES[st].replace(/^(Roll|Choose) /, '')}</span>`).join('')}</div>
+        <div class="muted">Lv ${m.level} · ${(p?.types || []).join(' / ')}${m.shiny ? ' · ★ Shiny' : ''} · becomes ${esc(m.finalName)}</div></div></div>
+      ${isCatch ? '<div class="banner ok" style="margin-top:10px">New catch! Single rolls for IVs, nature and ability, then a shiny roll.</div>' : ''}
+      <div class="steps">${steps.map((st, i) => `<span class="${st === m.step ? 'on' : steps.indexOf(m.step) > i ? 'done' : ''}">${i + 1}. ${STEP_NAMES[st].replace(/^(Roll|Choose) /, '').replace(' roll', '')}</span>`).join('')}</div>
       <div class="stack" style="margin-top:14px">${body}</div>`;
     const $ = id => document.getElementById(id);
     $('rollIVs')?.addEventListener('click', () => {
       if (busy) return; $('rollIVs').disabled = true;
-      const rolls = Object.fromEntries(STAT_KEYS.map(k => [k, [0, 1, 2].map(() => 3 + randInt(6) + randInt(12) + randInt(20))]));
+      const rolls = Object.fromEntries(STAT_KEYS.map(k => [k, Array.from({ length: tries }, () => 3 + randInt(6) + randInt(12) + randInt(20))]));
       let n = 0; const spin = setInterval(() => {      // a short tumble, then the real numbers
         STAT_KEYS.forEach(k => { const el = app.querySelector(`[data-ivr="${k}"]`); if (el) el.textContent = [0, 1, 2].map(() => 3 + randInt(6) + randInt(12) + randInt(20)).join(' · '); });
         if (++n >= 10) { clearInterval(spin); save({ ivRolls: rolls, ivs: Object.fromEntries(STAT_KEYS.map(k => [k, Math.min(31, Math.max(...rolls[k]))])) }); }
@@ -1147,17 +1240,22 @@ function screenSetup(cid, pid, uid) {
     });
     $('toNature')?.addEventListener('click', () => save({ step: 'nature' }));
     $('rollNat')?.addEventListener('click', async () => {
-      const r = await rollDice({ title: 'Nature rolls', dice: [100, 100, 100], mode, showTotal: false });
+      const r = await rollDice({ title: 'Nature roll' + (isCatch ? '' : 's'), dice: Array(tries).fill(100), mode, showTotal: false });
       if (r && !mon().natureRolls) { natPick = null; save({ natureRolls: r.values }); }
     });
     app.querySelectorAll('[data-nat]').forEach(b => b.onclick = () => { natPick = b.dataset.nat; draw(); });
     $('keepNat')?.addEventListener('click', () => save({ nature: natPick, step: 'ability' }));
     $('rollAb')?.addEventListener('click', async () => {
-      const r = await rollDice({ title: 'Ability rolls', dice: [100, 100, 100], mode, showTotal: false });
+      const r = await rollDice({ title: 'Ability roll' + (isCatch ? '' : 's'), dice: Array(tries).fill(100), mode, showTotal: false });
       if (r && !mon().abilityRolls) { abPick = null; save({ abilityRolls: r.values }); }
     });
     app.querySelectorAll('[data-ab]').forEach(b => b.onclick = () => { abPick = b.dataset.ab; draw(); });
-    $('keepAb')?.addEventListener('click', () => { const o = app.querySelector(`[data-ab="${CSS.escape(abPick)}"]`); save({ ability: abPick, abilitySlot: o?.dataset.slot || '1', step: 'moves' }); });
+    $('keepAb')?.addEventListener('click', () => { const o = app.querySelector(`[data-ab="${CSS.escape(abPick)}"]`); save({ ability: abPick, abilitySlot: o?.dataset.slot || '1', step: isCatch ? 'shiny' : 'moves' }); });
+    $('rollShiny')?.addEventListener('click', async () => {
+      const r = await rollDice({ title: 'Shiny roll (total of 3 = shiny)', dice: [6, 12, 20], mode });
+      if (r && mon().shinyRoll == null) save({ shinyRoll: r.total, shiny: r.total === 3 });
+    });
+    $('toMoves')?.addEventListener('click', () => save({ step: 'moves' }));
     app.querySelectorAll('[data-mv]').forEach(b => b.onclick = () => {
       const mv = b.dataset.mv;
       if (movePick.includes(mv)) movePick = movePick.filter(x => x !== mv);
@@ -1171,9 +1269,784 @@ function screenSetup(cid, pid, uid) {
   unwatch = DB.watchDoc(PLAYER(cid, pid), d => { team = d?.team || []; draw(); });
 }
 
+// ═══ 8. MISSIONS & BATTLE ══════════════════════════════════════════════
+// Rules engine first (pure math, no screens), then the mission/battle screens.
+
+// ---- Type chart (current games): attacking type → defending type → multiplier ----
+const TYPE_CHART = {
+  Normal: { Rock: .5, Ghost: 0, Steel: .5 },
+  Fire: { Fire: .5, Water: .5, Grass: 2, Ice: 2, Bug: 2, Rock: .5, Dragon: .5, Steel: 2 },
+  Water: { Fire: 2, Water: .5, Grass: .5, Ground: 2, Rock: 2, Dragon: .5 },
+  Electric: { Water: 2, Electric: .5, Grass: .5, Ground: 0, Flying: 2, Dragon: .5 },
+  Grass: { Fire: .5, Water: 2, Grass: .5, Poison: .5, Ground: 2, Flying: .5, Bug: .5, Rock: 2, Dragon: .5, Steel: .5 },
+  Ice: { Fire: .5, Water: .5, Grass: 2, Ice: .5, Ground: 2, Flying: 2, Dragon: 2, Steel: .5 },
+  Fighting: { Normal: 2, Ice: 2, Poison: .5, Flying: .5, Psychic: .5, Bug: .5, Rock: 2, Ghost: 0, Dark: 2, Steel: 2, Fairy: .5 },
+  Poison: { Grass: 2, Poison: .5, Ground: .5, Rock: .5, Ghost: .5, Steel: 0, Fairy: 2 },
+  Ground: { Fire: 2, Electric: 2, Grass: .5, Poison: 2, Flying: 0, Bug: .5, Rock: 2, Steel: 2 },
+  Flying: { Electric: .5, Grass: 2, Fighting: 2, Bug: 2, Rock: .5, Steel: .5 },
+  Psychic: { Fighting: 2, Poison: 2, Psychic: .5, Dark: 0, Steel: .5 },
+  Bug: { Fire: .5, Grass: 2, Fighting: .5, Poison: .5, Flying: .5, Psychic: 2, Ghost: .5, Dark: 2, Steel: .5, Fairy: .5 },
+  Rock: { Fire: 2, Ice: 2, Fighting: .5, Ground: .5, Flying: 2, Bug: 2, Steel: .5 },
+  Ghost: { Normal: 0, Psychic: 2, Ghost: 2, Dark: .5 },
+  Dragon: { Dragon: 2, Steel: .5, Fairy: 0 },
+  Dark: { Fighting: .5, Psychic: 2, Ghost: 2, Dark: .5, Fairy: .5 },
+  Steel: { Fire: .5, Water: .5, Electric: .5, Ice: 2, Rock: 2, Steel: .5, Fairy: 2 },
+  Fairy: { Fire: .5, Fighting: 2, Poison: .5, Dragon: 2, Dark: 2, Steel: .5 }
+};
+const typeMults = (moveType, defTypes) => defTypes.map(t => TYPE_CHART[moveType]?.[t] ?? 1);
+const effOf = (moveType, defTypes) => typeMults(moveType, defTypes).reduce((a, b) => a * b, 1);
+const effLabel = e => e === 0 ? 'No effect' : e >= 4 ? '4× super effective' : e >= 2 ? '2× super effective' : e <= .25 ? '¼× not very effective' : e < 1 ? '½× not very effective' : '1× neutral';
+
+// ---- Speed table: current speed → Order (meter limit) and movement die ----
+const SPEED_TIERS = [[14, 14, 4], [30, 13, 4], [54, 12, 4], [87, 11, 6], [128, 10, 6], [180, 9, 8], [241, 8, 8], [315, 7, 10], [400, 6, 10], [434, 5, 12], [Infinity, 4, 20]];
+const speedTier = spe => { const t = SPEED_TIERS.find(([max]) => spe <= max); return { order: t[1], die: t[2] }; };
+
+// ---- Stat stages, statuses ----
+const STAGE_KEYS = ['atk', 'def', 'spa', 'spd', 'spe', 'acc', 'eva', 'crit'];
+const STAGE_LABEL = { atk: 'ATK', def: 'DEF', spa: 'SP ATK', spd: 'SP DEF', spe: 'SPD', acc: 'ACC', eva: 'EVADE', crit: 'CRIT' };
+const stageMult = s => s >= 0 ? (2 + s) / 2 : 2 / (2 - s);
+const STATUS_NAME = { brn: 'Burned', par: 'Paralyzed', psn: 'Poisoned', tox: 'Badly poisoned', slp: 'Asleep', frz: 'Frozen' };
+const STATUS_SHORT = { brn: 'BRN', par: 'PAR', psn: 'PSN', tox: 'TOX', slp: 'SLP', frz: 'FRZ' };
+const STATUS_IMMUNE = { brn: ['Fire'], par: ['Electric'], psn: ['Poison', 'Steel'], tox: ['Poison', 'Steel'], frz: ['Ice'], slp: [] };
+const pokeRound = v => (v % 1 > 0.5 ? Math.ceil(v) : Math.floor(v));   // the games round .5 down here
+function currentSpeed(u) {
+  let s = Math.floor(u.stats.spe * stageMult(u.stages.spe));
+  if (u.status === 'par') s = Math.floor(s / 2);
+  return Math.max(1, s);
+}
+const SELF_TARGETS = ['Self', 'Self or ally', 'Your team', 'Your side', 'All allies', 'One ally'];
+const SPREAD_TARGETS = ['All adjacent foes', 'All adjacent'];
+const parseHits = h => { if (typeof h === 'number') return h; const m = String(h || '1').match(/(\d+)\D+(\d+)/); return m ? [Number(m[1]), Number(m[2])] : Number(h) || 1; };
+const multiHitFromD20 = d => d <= 7 ? 2 : d <= 14 ? 3 : d <= 17 ? 4 : 5;   // the games' 35/35/15/15 odds
+const critFromD20 = (stage, d20) => stage >= 3 || (stage === 2 && d20 >= 11) || (stage === 1 && d20 >= 19) || d20 === 20;
+const sleepTurnsFromD6 = d => d <= 2 ? 1 : d <= 4 ? 2 : 3;
+
+// Accuracy: hits when the D100 is at or below this number (accuracy/evasion stages adjust it like the games).
+function hitThreshold(move, att, def) {
+  if (move.alwaysHits || move.accuracy == null) return null;
+  const s = Math.max(-6, Math.min(6, (att.stages.acc || 0) - (def.stages.eva || 0)));
+  return Math.floor(move.accuracy * (s >= 0 ? (3 + s) / 3 : 3 / (3 - s)));
+}
+
+// The damage formula, step by step with the games' rounding. roll = D6+D12+D20 total.
+function calcDamage({ att, def, move, roll, crit, spread }) {
+  const phys = move.category === 'Physical';
+  const ak = phys ? 'atk' : 'spa', dk = phys ? 'def' : 'spd';
+  const as = att.stages[ak] || 0, ds = def.stages[dk] || 0;
+  const A = Math.floor(att.stats[ak] * stageMult(crit && as < 0 ? 0 : as));
+  const D = Math.floor(def.stats[dk] * stageMult(crit && ds > 0 ? 0 : ds));
+  const L = att.level, P = move.power;
+  const lines = [];
+  let x = Math.floor(Math.floor(Math.floor(2 * L / 5 + 2) * P * A / D) / 50) + 2;
+  lines.push(`Base: Lv ${L}, power ${P}, ${STAT_LABEL[ak]} ${A} vs ${STAT_LABEL[dk]} ${D} → ${x}`);
+  if (spread) { x = pokeRound(x * 0.75); lines.push(`Several targets ×0.75 → ${x}`); }
+  if (crit) { x = Math.floor(x * 1.5); lines.push(`Critical hit ×1.5 → ${x}`); }
+  x = Math.floor(x * (217 + roll) / 255); lines.push(`Roll ${roll}: ×(217+${roll})/255 → ${x}`);
+  if (att.types.includes(move.type)) { x = pokeRound(x * 1.5); lines.push(`STAB ×1.5 → ${x}`); }
+  const mults = typeMults(move.type, def.types), eff = mults.reduce((a, b) => a * b, 1);
+  for (const m of mults) if (m !== 1) x = Math.floor(x * m);
+  if (eff !== 1) lines.push(`Type ×${eff} → ${x}`);
+  if (phys && att.status === 'brn') { x = pokeRound(x * 0.5); lines.push(`Burned ×0.5 → ${x}`); }
+  if (eff === 0) x = 0; else x = Math.max(1, x);
+  return { damage: x, eff, lines };
+}
+
+// Wild Pokémon: IVs 31, neutral nature, EVs 252 / 252 / 4 into the three highest base stats
+// (ties broken in the order HP, DEF, SP DEF, SPD, ATK, SP ATK).
+const WILD_TIE_ORDER = ['hp', 'def', 'spd', 'spe', 'atk', 'spa'];
+function wildEVs(base) {
+  const order = [...WILD_TIE_ORDER].sort((a, b) => base[b] - base[a] || WILD_TIE_ORDER.indexOf(a) - WILD_TIE_ORDER.indexOf(b));
+  const ev = Object.fromEntries(STAT_KEYS.map(k => [k, 0]));
+  ev[order[0]] = 252; ev[order[1]] = 252; ev[order[2]] = 4;
+  return ev;
+}
+const statsFor = (species, ivs, evs, level, nature) => {
+  const base = getPokemon(species)?.stats || {};
+  return Object.fromEntries(STAT_KEYS.map(k => [k, calcStat(k, base[k] || 1, ivs[k], evs[k], level, nature)]));
+};
+// Wild default moves: the 4 most recently learned level-up moves, like wild Pokémon in the games.
+function defaultWildMoves(species, level) {
+  const known = getMovepool(species).filter(m => m.method === 'Level-up' && m.level <= level);
+  const best = {};
+  for (const m of known) best[m.move] = Math.max(best[m.move] ?? -1, m.level ?? 0);
+  return Object.entries(best).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 4).map(([n]) => n);
+}
+const abilityOptions = species => { const p = getPokemon(species) || {}; return [...(p.abilities || []), ...(p.hidden ? [p.hidden] : [])]; };
+
+function newUnit(base) {
+  return { status: null, slp: 0, tox: 0, stages: Object.fromEntries(STAGE_KEYS.map(k => [k, 0])), meter: 0, pos: null, out: false, fainted: false, kos: 0, ...base };
+}
+function unitFromMon(pid, mon) {
+  const stats = statsFor(mon.species, mon.ivs, mon.evs || {}, mon.level, mon.nature);
+  return newUnit({ id: 'p_' + mon.uid, side: 'p', owner: pid, ref: mon.uid, final: mon.final, name: mon.species, level: mon.level, shiny: !!mon.shiny,
+    types: getPokemon(mon.species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ability: mon.ability, moves: mon.moves || [] });
+}
+function unitFromWild(final, level, setup) {
+  const species = formAtLevel(final, level);
+  const base = getPokemon(species)?.stats || {};
+  const stats = statsFor(species, Object.fromEntries(STAT_KEYS.map(k => [k, 31])), wildEVs(base), level, null);
+  return newUnit({ id: 'w_' + String(final).replace(/\W/g, '_'), side: 'w', owner: 'dm', ref: final, final, name: species, level, shiny: false,
+    types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp,
+    ability: setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level) });
+}
+
+// ---- The turn meter ----
+const onField = (b, u) => u.out && !u.fainted && (b.noMap || !!u.pos);
+// Advance the meters to the next Pokémon to act (ties: higher speed → player before wild → hidden initiative list).
+function pickNext(b) {
+  const act = Object.values(b.units).filter(u => onField(b, u));
+  if (!act.length) return null;
+  const need = u => speedTier(currentSpeed(u)).order - u.meter;
+  const k = Math.max(0, Math.min(...act.map(need)));
+  act.forEach(u => u.meter += k);
+  const ready = act.filter(u => need(u) <= 0);
+  ready.sort((a, b2) => currentSpeed(b2) - currentSpeed(a) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
+  const win = ready[0];
+  if (ready.length > 1 && currentSpeed(ready[1]) === currentSpeed(win) && ready[1].side === win.side) {
+    b.init = [...b.init.filter(id => id !== win.id), win.id];   // won a tie on the hidden list → goes to the bottom
+  }
+  win.meter = 0;
+  return win;
+}
+function upcoming(b, n) {   // preview of the next n turns (doesn't change the real battle)
+  const sim = JSON.parse(JSON.stringify(b)), out = [];
+  if (b.turn?.id) out.push(b.turn.id);
+  while (out.length < n) { const u = pickNext(sim); if (!u) break; out.push(u.id); }
+  return out;
+}
+const needsPlacement = b => Object.values(b.units).filter(u => u.out && !u.fainted && !u.pos && !b.noMap);
+const blocked = b => !b.started || b.over || needsPlacement(b).length > 0 || (b.needs || []).length > 0;
+function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is waiting
+  b.turn = null;
+  if (blocked(b)) return;
+  const u = pickNext(b); if (!u) return;
+  b.turn = { id: u.id, step: ['frz', 'par', 'slp'].includes(u.status) ? 'start' : 'move', roll: null };
+  blog(b, `— ${u.name}'s turn (${sideName(b, u)})`);
+}
+const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-60); };
+const sideName = (b, u) => u.side === 'w' ? 'wild' : (b.names?.[u.owner] || 'player');
+
+// End of turn: burn and poison damage, then the next turn.
+function finishTurn(b) {
+  const u = b.units[b.turn?.id];
+  if (u && onField(b, u)) {
+    let d = 0;
+    if (u.status === 'brn') d = Math.max(1, Math.floor(u.maxHp / 16));
+    if (u.status === 'psn') d = Math.max(1, Math.floor(u.maxHp / 8));
+    if (u.status === 'tox') { d = Math.max(1, Math.floor(u.maxHp * Math.max(1, u.tox) / 16)); u.tox = Math.max(1, u.tox) + 1; }
+    if (d) { u.hp = Math.max(0, u.hp - d); blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) faint(b, u, null); }
+  }
+  startTurn(b);
+}
+// A Pokémon faints: KO credit, catch, and who must send out a replacement.
+function faint(b, v, killer) {
+  v.fainted = true; v.out = false; v.pos = null; v.hp = 0; v.status = null;
+  blog(b, `${v.name} fainted!`);
+  if (killer && killer.id !== v.id) {
+    killer.kos = (killer.kos || 0) + 1;
+    b.kos = [...(b.kos || []), { by: killer.id, victim: v.id }];
+    if (killer.side === 'p' && v.side === 'w') {
+      if ((b.taken || []).includes(v.final)) blog(b, `${v.name} can't be caught (that Pokémon is already taken).`);
+      else { b.catches = [...(b.catches || []), { pid: killer.owner, final: v.final, species: v.name, by: killer.id }]; b.taken = [...(b.taken || []), v.final]; blog(b, `${sideName(b, killer)} caught ${v.name}! (KO by ${killer.name})`); }
+    }
+  }
+  const team = Object.values(b.units).filter(u => u.side === v.side && u.owner === v.owner);
+  const left = team.filter(u => !u.fainted && !u.out);
+  if (left.length) b.needs = [...(b.needs || []), { side: v.side, owner: v.owner }];   // choose a replacement
+  else if (v.side === 'p' && !team.some(u => u.out && !u.fainted)) blog(b, `${sideName(b, v)} has no Pokémon left and is out of this mission.`);
+  const wildLeft = Object.values(b.units).some(u => u.side === 'w' && !u.fainted);
+  const playersLeft = Object.values(b.units).some(u => u.side === 'p' && !u.fainted);
+  if (!wildLeft) { b.over = 'players'; blog(b, 'Every wild Pokémon is down — the mission is won!'); }
+  else if (!playersLeft) { b.over = 'wild'; blog(b, 'Every player Pokémon has fainted.'); }
+}
+const applyStages = (u, ch) => { const out = []; for (const [k, v] of Object.entries(ch || {})) { const was = u.stages[k] || 0, now = Math.max(-6, Math.min(6, was + v)); u.stages[k] = now; out.push(now === was ? `${STAGE_LABEL[k]} won't go ${v > 0 ? 'higher' : 'lower'}` : `${STAGE_LABEL[k]} ${v > 0 ? '+' : ''}${now - was}`); } return out.join(', '); };
+function canGetStatus(u, st, move) {
+  if (u.status) return false;
+  if (STATUS_IMMUNE[st].some(t => u.types.includes(t))) return false;
+  if (move?.name === 'Thunder Wave' && effOf('Electric', u.types) === 0) return false;
+  return true;
+}
+
+// ---- Hex helpers for placement ----
+const hexDistance = (a, b2) => { const [q1, r1] = a.split(',').map(Number), [q2, r2] = b2.split(',').map(Number); const dq = q1 - q2, dr = r1 - r2; return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)); };
+const occupied = b => new Set(Object.values(b.units).filter(u => onField(b, u)).map(u => u.pos));
+function openHexes(b, mis) { const occ = occupied(b), bl = new Set(mis.blocked || []); return (mis.cells || []).filter(k => !bl.has(k) && !occ.has(k)); }
+// Where a player's next Pokémon may go after a faint: any open start hex, or a hex at least 3 from every enemy
+// and no farther from the starting line than the enemy closest to the starting line.
+function legalPlayerHexes(b, mis) {
+  const open = openHexes(b, mis), starts = mis.starts || [];
+  const enemies = Object.values(b.units).filter(u => u.side === 'w' && onField(b, u) && u.pos);
+  const fromStart = k => starts.length ? Math.min(...starts.map(s => hexDistance(k, s))) : 0;
+  const limit = enemies.length ? Math.min(...enemies.map(e => fromStart(e.pos))) : Infinity;
+  return new Set(open.filter(k => starts.includes(k) || (enemies.every(e => hexDistance(k, e.pos) >= 3) && fromStart(k) <= limit)));
+}
+
+// ---- Shared screen helpers for missions ----
+const WILD_SETUP = final => 'wildSetups/' + String(final).replace(/\//g, '_');   // saved ability + moves per wild Pokémon (any campaign)
+const missionLines = n => LINES_DATA.filter(l => l.mission === n);
+const benchKey = f => String(f).replace(/\W/g, '_');   // safe name for a Final inside a saved record
+const clone = o => JSON.parse(JSON.stringify(o));
+const isSelfMove = mv => SELF_TARGETS.includes(mv?.target);
+let BUI = {};   // what this screen is in the middle of (placing a token, choosing a move…); reset on every screen change
+function openModal(build) {   // build(card, close, redraw) fills in the modal's content
+  const wrap = document.createElement('div'); wrap.className = 'modal open';
+  wrap.innerHTML = '<div class="card stack modal-card"></div>';
+  document.body.appendChild(wrap);
+  const card = wrap.firstChild, close = () => wrap.remove(), redraw = () => build(card, close, redraw);
+  wrap.onclick = e => { if (e.target === wrap) close(); };
+  redraw();
+  return close;
+}
+const moveCardHTML = (name, extra = '') => {
+  const d = getMove(name) || { name };
+  const fx = d.fx, tag = !fx || fx.auto === 'no' ? `<span class="pill warn" title="${esc(fx?.why || '')}">Not automated${fx?.why ? ': ' + esc(fx.why) : ''}</span>`
+    : fx.auto === 'partial' ? `<span class="pill warn">Partly automated: ${esc(fx.why || '')}</span>` : '';
+  return `<small><i class="tchip t-${d.type}">${d.type || '?'}</i> ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Never misses' : ''} · ${esc(d.target || '')}</small>
+    <b>${esc(name)}</b><span class="muted">${esc(d.effect || '')}</span>${tag}${extra}`;
+};
+const hpBar = u => { const p = Math.max(0, u.hp / u.maxHp); return `<span class="hpbar"><i style="width:${(p * 100).toFixed(1)}%;background:${p > .5 ? 'var(--ok)' : p > .2 ? '#e0a400' : 'var(--bad)'}"></i></span><span class="hpnum">${u.hp}/${u.maxHp}</span>`; };
+const stageChips = u => STAGE_KEYS.filter(k => u.stages[k]).map(k => `<span class="pill ${u.stages[k] > 0 ? 'up' : 'down'}">${STAGE_LABEL[k]} ${u.stages[k] > 0 ? '+' : ''}${u.stages[k]}</span>`).join('');
+const statusChip = u => u.status ? `<span class="pill st-${u.status}">${STATUS_SHORT[u.status]}${u.status === 'slp' ? ' ' + u.slp : ''}</span>` : '';
+
+// ---- DM: mission setup (wild bench, saved setups, parties) ----
+function missionSetupDM(el, ctx) {
+  const { c, mis, cid, misNum, teams, wildSetups } = ctx;
+  const N = misNum, setup = mis.setup || {}, bench = setup.bench || {};
+  const lines = missionLines(N);
+  const perPlayer = setup.perPlayer || ((c.players || []).length === 1 ? 2 : 1);
+  const upd = patch => DB.update(MISSION(cid, N), patch).catch(saveErr);
+  el.innerHTML = `<div class="card stack">
+    <div class="row"><h2 style="margin:0">Mission ${N} setup</h2><div class="spacer"></div><span class="muted">${lines.length} Pokémon in this mission</span></div>
+    <div class="muted">Tick the wild Pokémon in this battle. Ability and moves save automatically and come back next time, in any campaign. Wild Pokémon: level ${N}, IVs 31, neutral nature, EVs 252/252/4.</div>
+    <div class="wildgrid">${lines.map(l => {
+      const ws = wildSetups[String(l.final)], u = unitFromWild(l.final, N, ws), on = !!bench[benchKey(l.final)];
+      return `<div class="wildcard ${on ? 'on' : ''}">
+        <label class="row" style="cursor:pointer"> <input type="checkbox" data-bench="${benchKey(l.final)}" ${on ? 'checked' : ''}>${monImg(u.name, false, 'spr sm')}
+          <div><b>${esc(u.name)}</b><div class="muted" style="font-size:.8rem">Lv ${N} · ${u.types.join(' / ')} · Final: ${esc(l.name)}</div></div></label>
+        <div class="statline">${STAT_KEYS.map(k => `<span>${STAT_LABEL[k]} <b>${u.stats[k]}</b></span>`).join('')}</div>
+        <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option ${a === u.ability ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
+        <div class="row" style="gap:6px">${u.moves.map(m => `<span class="pill">${esc(m)}</span>`).join('')}<button class="btn small ghost" data-moves="${l.final}">Edit moves</button></div>
+        ${ws ? '' : '<div class="muted" style="font-size:.8rem">Using defaults (first ability, 4 newest moves).</div>'}
+      </div>`; }).join('')}</div>
+    <div><div class="muted" style="margin-bottom:6px">Pokémon each player sends out at once</div>
+      <div class="seg">${[1, 2, 3].map(n => `<button aria-pressed="${n === perPlayer}" data-per="${n}">${n}</button>`).join('')}</div></div>
+    <div class="stack" style="--gap:6px"><div style="font-weight:650">Players</div>${(c.players || []).map(p => {
+      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team);
+      return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)}
+        <span class="muted">· party ${party.length}/6 · first out: ${leadsOf(setup, p.id, party, perPlayer).map(m => esc(m.species)).join(', ') || '—'}${setup.parties?.[p.id] ? '' : ' (default)'}</span></div>`; }).join('')}</div>
+    <div class="row"><div class="spacer"></div><button class="btn primary" id="startBattle">▶ Start battle</button></div>
+  </div>`;
+  el.querySelectorAll('[data-bench]').forEach(b => b.onchange = () => upd({ ['setup.bench.' + b.dataset.bench]: b.checked ? true : DB.DEL }));
+  el.querySelectorAll('[data-per]').forEach(b => b.onclick = () => upd({ 'setup.perPlayer': +b.dataset.per }));
+  const saveWild = (final, patch) => { const u = unitFromWild(final, N, wildSetups[String(final)]); DB.set(WILD_SETUP(final), { ability: u.ability, moves: u.moves, ...patch }).catch(saveErr); };
+  el.querySelectorAll('[data-ab]').forEach(s => s.onchange = () => saveWild(s.dataset.ab, { ability: s.value }));
+  el.querySelectorAll('[data-moves]').forEach(b => b.onclick = () => {
+    const final = b.dataset.moves, u = unitFromWild(final, N, wildSetups[String(final)]);
+    let pick = [...u.moves];
+    const all = [...new Set(getMovepool(u.name).filter(m => m.method === 'Level-up' && m.level <= N).map(m => m.move))];
+    openModal((card, close, redraw) => {
+      card.innerHTML = `<h2 style="margin:0">${esc(u.name)}'s moves</h2><div class="muted">Level-up moves known at level ${N}. Up to 4.</div>
+        <div class="stack" style="max-height:55vh;overflow:auto">${all.map(m => `<button class="opt wide ${pick.includes(m) ? 'on' : ''}" data-m="${esc(m)}">${moveCardHTML(m)}</button>`).join('')}</div>
+        <div class="row"><span class="muted">${pick.length}/4</span><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok ${pick.length ? '' : 'disabled'}>Save</button></div>`;
+      card.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { const m = x.dataset.m; if (pick.includes(m)) pick = pick.filter(y => y !== m); else if (pick.length < 4) pick.push(m); else return toast('4 moves max'); redraw(); });
+      card.querySelector('[data-x]').onclick = close;
+      card.querySelector('[data-ok]').onclick = () => { saveWild(final, { moves: pick }); close(); };
+    });
+  });
+  document.getElementById('startBattle').onclick = () => {
+    const chosen = lines.filter(l => bench[benchKey(l.final)]);
+    if (!chosen.length) return toast('Tick at least one wild Pokémon');
+    const units = {}, names = {};
+    for (const p of c.players || []) {
+      names[p.id] = p.name;
+      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team), leads = leadsOf(setup, p.id, party, perPlayer);
+      for (const m of party) { const u = unitFromMon(p.id, m); if (leads.includes(m)) u.out = true; units[u.id] = u; }
+    }
+    if (!Object.values(units).some(u => u.side === 'p')) return toast('No player has a ready Pokémon yet');
+    for (const l of chosen) { const u = unitFromWild(l.final, N, wildSetups[String(l.final)]); units[u.id] = u; }
+    const noMap = c.settings?.mapMode !== 'app';
+    if (noMap) Object.values(units).forEach(u => { if (u.out) u.pos = 'table'; });
+    const b = { units, init: shuffle(Object.keys(units)), names, taken: [...(c.takenFinals || [])], noMap, started: false, over: null, turn: null, needs: [], log: [`Mission ${N} battle set up.`], kos: [], catches: [] };
+    upd({ phase: 'battle', battle: b });
+  };
+}
+const partyOf = (setup, pid, team) => { const ids = setup.parties?.[pid]; return ids ? team.filter(m => ids.includes(m.uid)) : team.slice(0, 6); };
+const leadsOf = (setup, pid, party, per) => { const ids = setup.leads?.[pid]; const l = ids ? party.filter(m => ids.includes(m.uid)) : []; return l.length ? l.slice(0, per) : party.slice(0, per); };
+
+// ---- Player: choose a party of 6 and who goes out first ----
+function missionSetupPlayer(el, ctx) {
+  const { c, mis, cid, misNum, pid, team } = ctx;
+  const setup = mis?.setup || {}, ready = team.filter(m => m.step === 'done');
+  const per = setup.perPlayer || ((c.players || []).length === 1 ? 2 : 1);
+  const party = partyOf(setup, pid, ready), leads = leadsOf(setup, pid, party, per);
+  el.innerHTML = `<div class="card stack"><h2 style="margin:0">Mission ${misNum}: your party</h2>
+    <div class="muted">Tap to bring up to 6 Pokémon. Star the ${per === 1 ? 'one' : per} that goes out first. The rest wait to switch in.</div>
+    ${ready.length ? `<div class="stack">${ready.map(m => { const inP = party.includes(m), lead = leads.includes(m);
+      return `<div class="partyrow ${inP ? 'on' : ''}"><button class="row grow" data-party="${m.uid}" style="all:unset;display:flex;gap:10px;align-items:center;flex:1;cursor:pointer">${monImg(m.species, m.shiny, 'spr sm')}<div><b>${esc(m.species)}</b><div class="muted" style="font-size:.85rem">Lv ${m.level} · ${(getPokemon(m.species)?.types || []).join(' / ')}</div></div></button>
+        ${inP ? `<button class="icon-btn ${lead ? 'star' : ''}" data-lead="${m.uid}" title="Goes out first">${lead ? '★' : '☆'}</button>` : ''}</div>`; }).join('')}</div>`
+      : '<div class="muted">Finish setting up your Pokémon first.</div>'}
+    <div class="muted" style="font-size:.9rem">The DM starts the battle when everyone's ready.</div></div>`;
+  const save = (p, l) => DB.update(MISSION(cid, misNum), { ['setup.parties.' + pid]: p, ['setup.leads.' + pid]: l }).catch(saveErr);
+  el.querySelectorAll('[data-party]').forEach(b => b.onclick = () => {
+    let p = party.map(m => m.uid); const id = b.dataset.party;
+    if (p.includes(id)) p = p.filter(x => x !== id); else if (p.length >= 6) return toast('6 Pokémon max'); else p.push(id);
+    save(p, leads.map(m => m.uid).filter(x => p.includes(x)));
+  });
+  el.querySelectorAll('[data-lead]').forEach(b => b.onclick = () => {
+    let l = leads.map(m => m.uid); const id = b.dataset.lead;
+    if (l.includes(id)) l = l.filter(x => x !== id); else { l.push(id); if (l.length > per) l.shift(); }
+    save(party.map(m => m.uid), l);
+  });
+}
+
+// ---- The battle screen (shared by the DM screen and phones) ----
+function battleView(el, ctx) {
+  const { c, mis, cid, misNum, viewer } = ctx;
+  const b = mis.battle, isDM = viewer === 'dm';
+  const mode = c.settings?.dice || 'physical';
+  const save = nb => DB.update(MISSION(cid, misNum), { battle: nb }).catch(saveErr);
+  const settle = nb => { if (!nb.turn && !blocked(nb)) startTurn(nb); return nb; };
+  const controls = u => u && (isDM || (u.side === 'p' && u.owner === viewer));
+  const units = Object.values(b.units);
+  const turnU = b.turn ? b.units[b.turn.id] : null;
+  const myTurn = controls(turnU) && !b.over;
+  const ringOf = u => u.side === 'w' ? 'var(--ink)' : colorOf(c, u.owner);
+  if (BUI.place && (b.units[BUI.place]?.pos || b.units[BUI.place]?.fainted)) BUI.place = null;   // done placing
+
+  // Which hexes light up, and what a tap does
+  let lit = null, tap = null, hint = '';
+  const placing = BUI.place && b.units[BUI.place] && !b.units[BUI.place].pos ? b.units[BUI.place] : null;
+  if (!b.noMap && placing) {
+    const u = placing;
+    if (u.side === 'p') {
+      const open = new Set(openHexes(b, mis)), starts = (mis.starts || []).filter(k => open.has(k));
+      lit = b.started ? legalPlayerHexes(b, mis) : new Set(starts.length ? starts : open);
+      hint = b.started ? `Place ${u.name}: a start hex, or 3+ hexes from every enemy and no farther up than the closest enemy.` : `Place ${u.name} on a start hex.`;
+    } else {
+      const open = new Set(openHexes(b, mis)), zones = (mis.wilds || []).filter(k => open.has(k));
+      lit = new Set(zones.length ? zones : open);
+      hint = `Place ${u.name}${zones.length ? ' (wild zones are lit; any open hex works)' : ''}.`;
+    }
+    tap = key => {
+      const ok = u.side === 'w' ? openHexes(b, mis).includes(key) : lit.has(key);
+      if (!ok) return toast('Not an allowed hex');
+      const nb = clone(b); nb.units[u.id].pos = key; blog(nb, `${u.name} was sent out.`); BUI.place = null; save(settle(nb));
+    };
+  } else if (!b.noMap && myTurn && b.turn.step === 'move' && b.turn.roll) {
+    lit = reachableInBattle(b, mis, turnU, b.turn.roll);
+    hint = `Move ${turnU.name} up to ${b.turn.roll} hex${b.turn.roll > 1 ? 'es' : ''}: tap a lit hex, or Stay.`;
+    tap = key => {
+      if (!lit.has(key)) return toast(`Out of reach — up to ${b.turn.roll}`);
+      const nb = clone(b); nb.units[turnU.id].pos = key; nb.turn.step = 'act'; save(nb);
+    };
+  } else if (!b.noMap && isDM && BUI.dmMove) {
+    const u = b.units[BUI.dmMove]; lit = new Set(openHexes(b, mis)); hint = `DM move: tap where ${u.name} goes.`;
+    tap = key => { if (!lit.has(key)) return; const nb = clone(b); nb.units[u.id].pos = key; BUI.dmMove = null; save(nb); };
+  }
+
+  // What's waiting (placements, replacements)
+  const waits = [];
+  for (const u of needsPlacement(b)) if (controls(u)) waits.push(`<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-place="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}Place ${esc(u.name)}</button>`);
+  (b.needs || []).forEach((n, i) => {
+    const mine = isDM || (n.side === 'p' && n.owner === viewer);
+    const who = n.side === 'w' ? 'the DM' : esc(b.names?.[n.owner] || 'player');
+    if (!mine) { waits.push(`<span class="muted">Waiting for ${who} to send out a Pokémon…</span>`); return; }
+    const avail = units.filter(u => u.side === n.side && u.owner === n.owner && !u.out && !u.fainted);
+    waits.push(`<div class="stack" style="--gap:6px"><b>${n.side === 'w' ? 'Send out the next wild Pokémon' : (n.owner === viewer ? 'Choose your next Pokémon' : `${who}: choose the next Pokémon`)}</b>
+      <div class="row">${avail.map(u => `<button class="chip" data-need="${i}" data-unit="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}${esc(u.name)} <span class="muted">${u.hp}/${u.maxHp}</span></button>`).join('')}
+      ${n.side === 'w' && isDM ? `<button class="btn small ghost" data-hold="${i}">Not now</button>` : ''}</div></div>`);
+  });
+  const bench = isDM ? units.filter(u => u.side === 'w' && !u.out && !u.fainted) : [];
+
+  // Turn panel for whoever controls the acting Pokémon
+  let turnHTML = '';
+  if (b.over) turnHTML = `<div class="banner ok"><b>${b.over === 'players' ? 'Victory!' : b.over === 'wild' ? 'The wild Pokémon won.' : 'Battle ended by the DM.'}</b> ${isDM ? 'Tap Finish mission when ready.' : 'Waiting for the DM to finish the mission.'}</div>`;
+  else if (!b.started) turnHTML = `<div class="banner warn">${isDM ? 'Send out wild Pokémon from the bench and place everyone, then tap <b>Start turns</b>.' : 'Place your Pokémon on a start hex. The DM starts the turns.'}</div>`;
+  else if (!turnU) turnHTML = `<div class="muted">Waiting…</div>`;
+  else if (!myTurn) turnHTML = `<div class="turnnow"><span class="sw" style="background:${ringOf(turnU)}"></span><b>${esc(turnU.name)}</b>&nbsp;is up (${esc(sideName(b, turnU))}).</div>`;
+  else {
+    const t = b.turn, tier = speedTier(currentSpeed(turnU));
+    let body = '';
+    if (t.step === 'start') {
+      body = turnU.status === 'frz' ? `<div>${esc(turnU.name)} is frozen. Roll a D100: 1–20 thaws it.</div><button class="btn primary" data-act="thaw">🎲 Roll D100</button>`
+        : turnU.status === 'par' ? `<div>${esc(turnU.name)} is paralyzed. Roll a D100: 1–25 means it can't move this turn.</div><button class="btn primary" data-act="para">🎲 Roll D100</button>`
+        : `<div>${esc(turnU.name)} is asleep (${turnU.slp} turn${turnU.slp === 1 ? '' : 's'} left).</div><button class="btn primary" data-act="sleep">Continue</button>`;
+    } else if (t.step === 'move') {
+      body = !t.roll ? `<div>Speed ${currentSpeed(turnU)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
+        : b.noMap ? `<div>Rolled <b class="rollnum">${t.roll}</b>. Move up to ${t.roll} hexes on the table.</div><button class="btn primary" data-act="stay">Done moving</button>`
+        : `<div>Rolled <b class="rollnum">${t.roll}</b>. Tap a lit hex.</div><button class="btn" data-act="stay">Stay here</button>`;
+    } else if (t.step === 'act') {
+      const mv = BUI.move && getMove(BUI.move);
+      if (BUI.switching) {
+        const opts = units.filter(u => u.side === turnU.side && u.owner === turnU.owner && !u.out && !u.fainted);
+        body = `<div><b>Switch ${esc(turnU.name)} for:</b> (takes the same hex; uses this turn)</div><div class="row">${opts.map(u => `<button class="chip" data-switch="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}${esc(u.name)} <span class="muted">${u.hp}/${u.maxHp}</span></button>`).join('') || '<span class="muted">No one to switch in.</span>'}</div><button class="btn ghost small" data-act="back">Back</button>`;
+      } else if (mv) {
+        const selfMv = isSelfMove(mv), spreadMv = SPREAD_TARGETS.includes(mv.target);
+        const cands = units.filter(u => onField(b, u) && u.id !== turnU.id);
+        BUI.targets = (BUI.targets || []).filter(id => cands.some(u => u.id === id));
+        body = `<div class="opt wide on" style="cursor:default">${moveCardHTML(mv.name)}</div>
+          ${selfMv ? `<div class="muted">Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.</div>` : `<div><b>Choose ${spreadMv ? 'targets' : 'a target'}</b> <span class="muted">(${esc(mv.target)} — the table judges range)</span></div>
+          <div class="targets">${cands.map(u => { const e = mv.category === 'Status' ? null : effOf(mv.type, u.types), on = BUI.targets.includes(u.id);
+            return `<button class="target ${on ? 'on' : ''} side-${u.side}" data-tgt="${u.id}">${monImg(u.name, u.shiny, 'spr sm')}<div><b>${esc(u.name)}</b> <span class="muted">${esc(sideName(b, u))}</span>
+              <div class="types">${u.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div>${hpBar(u)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; }).join('')}</div>`}
+          <div class="row"><button class="btn ghost" data-act="back">Back</button><div class="spacer"></div><button class="btn primary" data-act="use" ${selfMv || BUI.targets.length ? '' : 'disabled'}>Use ${esc(mv.name)}</button></div>`;
+      } else {
+        body = `<div class="movegrid">${turnU.moves.map(m => `<button class="opt" data-move="${esc(m)}">${moveCardHTML(m)}</button>`).join('')}</div>
+          <div class="row"><button class="btn" data-act="switch">⇄ Switch</button><div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
+      }
+    }
+    turnHTML = `<div class="turnpanel"><div class="row">${monImg(turnU.name, turnU.shiny, 'spr sm')}<div><b style="font-size:1.1rem">${esc(turnU.name)}'s turn</b> ${statusChip(turnU)}<div class="muted" style="font-size:.85rem">${esc(sideName(b, turnU))} · Lv ${turnU.level} · ${hpBar(turnU)}</div></div></div>${body}</div>`;
+  }
+
+  const order = upcoming(b, 7).map(id => b.units[id]).filter(Boolean);
+  const unitRow = u => `<div class="unitrow ${u.fainted ? 'fainted' : ''} ${b.turn?.id === u.id ? 'now' : ''}" ${isDM ? `data-edit="${u.id}"` : ''}>
+      <span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span>
+      <div style="flex:1;min-width:0"><div><b>${esc(u.name)}</b> <span class="muted" style="font-size:.85rem">Lv ${u.level}${u.side === 'p' ? ' · ' + esc(b.names?.[u.owner] || '') : ''}${!u.out && !u.fainted ? ' · bench' : ''}${u.kos ? ` · ${u.kos} KO` : ''}</span> ${statusChip(u)} ${stageChips(u)}</div>${hpBar(u)}</div></div>`;
+  const last = b.last;
+  el.innerHTML = `<div class="stack">
+    ${turnHTML}
+    ${waits.length ? `<div class="card stack">${waits.join('')}</div>` : ''}
+    ${bench.length && !b.over ? `<div class="row"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
+    ${b.noMap ? '' : `${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard"></svg>`}
+    ${order.length && b.started && !b.over ? `<div class="row orderstrip"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>` : ''}
+    ${last ? `<details class="card"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
+    <div class="grid">
+      <div class="card stack" style="--gap:6px"><h2 style="margin:0">Players</h2>${units.filter(u => u.side === 'p').map(unitRow).join('')}</div>
+      <div class="card stack" style="--gap:6px"><h2 style="margin:0">Wild</h2>${units.filter(u => u.side === 'w').map(unitRow).join('')}</div>
+    </div>
+    <div class="card"><h2>Battle log</h2><div class="log">${(b.log || []).slice(-14).reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div>
+      <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities aren't automated yet: apply their effects by hand (DM: tap a Pokémon to edit it).</div></div>
+    ${isDM ? `<div class="row">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
+      ${b.over ? `<button class="btn primary" data-act="finish">Finish mission ▶</button>` : `<button class="btn small ghost" data-act="endbattle">End battle</button>`}</div>` : ''}
+  </div>`;
+
+  if (!b.noMap) renderBoard(el.querySelector('#bboard'), {
+    cells: mis.cells, blocked: mis.blocked, starts: mis.starts, wilds: mis.wilds, reach: lit,
+    selected: turnU?.pos && turnU.pos !== 'table' ? turnU.pos : null,
+    units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer }))
+  }, tap || (isDM ? key => { const u = units.find(x => onField(b, x) && x.pos === key); if (u) { BUI.dmMove = u.id; ctx.redraw(); } } : null));
+
+  // ---- Wiring ----
+  const $$ = (sel, f) => el.querySelectorAll(sel).forEach(x => x.onclick = () => f(x));
+  $$('[data-place]', x => { BUI.place = BUI.place === x.dataset.place ? null : x.dataset.place; ctx.redraw(); });
+  $$('[data-sendout]', x => {
+    const nb = clone(b), u = nb.units[x.dataset.sendout]; u.out = true; u.meter = 0;
+    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); } else BUI.place = u.id;
+    save(settle(nb));
+  });
+  $$('[data-unit]', x => {
+    const nb = clone(b), u = nb.units[x.dataset.unit]; u.out = true; u.meter = 0;
+    nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.need);
+    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); } else BUI.place = u.id;
+    save(settle(nb));
+  });
+  $$('[data-hold]', x => { const nb = clone(b); nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.hold); save(settle(nb)); });
+  $$('[data-move]', x => { BUI.move = x.dataset.move; BUI.targets = []; ctx.redraw(); });
+  $$('[data-tgt]', x => {
+    const mv = getMove(BUI.move), id = x.dataset.tgt;
+    if (SPREAD_TARGETS.includes(mv?.target)) BUI.targets = BUI.targets.includes(id) ? BUI.targets.filter(y => y !== id) : [...BUI.targets, id];
+    else BUI.targets = [id];
+    ctx.redraw();
+  });
+  $$('[data-switch]', x => {
+    const nb = clone(b), out = nb.units[b.turn.id], inc = nb.units[x.dataset.switch];
+    inc.out = true; inc.pos = out.pos; inc.meter = 0;
+    out.out = false; out.pos = null; out.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); if (out.status === 'tox') out.tox = 1;
+    blog(nb, `${sideName(nb, out)} switched ${out.name} for ${inc.name}.`);
+    BUI = {}; save(finishTurnSafe(nb));
+  });
+  $$('[data-edit]', x => editUnitModal(ctx, x.dataset.edit));
+  $$('[data-act]', async x => {
+    const a = x.dataset.act;
+    if (a === 'back') { BUI.move = null; BUI.switching = false; BUI.targets = []; return ctx.redraw(); }
+    if (a === 'switch') { BUI.switching = true; return ctx.redraw(); }
+    if (a === 'startturns') {
+      if (!units.some(u => u.side === 'w' && onField(b, u))) return toast('Send out at least one wild Pokémon');
+      if (needsPlacement(b).length) return toast('Place every Pokémon first');
+      const nb = clone(b); nb.started = true; blog(nb, 'The battle begins!'); return save(settle(nb));
+    }
+    if (a === 'endbattle') { if (!confirm('End the battle now? KOs and catches so far still count.')) return; const nb = clone(b); nb.over = 'dm'; nb.turn = null; blog(nb, 'The DM ended the battle.'); return save(nb); }
+    if (a === 'finish') return finishMission(ctx);
+    if (a === 'skip') { const nb = clone(b); blog(nb, `${turnU.name} didn't use a move.`); BUI = {}; return save(finishTurnSafe(nb)); }
+    if (a === 'stay') { const nb = clone(b); nb.turn.step = 'act'; return save(nb); }
+    if (a === 'rollmove') {
+      const tier = speedTier(currentSpeed(turnU));
+      const r = await rollDice({ title: `${turnU.name}: move roll`, dice: [tier.die], mode: isDM && turnU.side === 'w' ? mode : mode });
+      if (!r) return;
+      const nb = clone(b); if (nb.turn?.id !== turnU.id || nb.turn.roll) return; nb.turn.roll = r.total; blog(nb, `${turnU.name} rolled ${r.total} to move.`); return save(nb);
+    }
+    if (a === 'thaw' || a === 'para') {
+      const r = await rollDice({ title: a === 'thaw' ? 'Thaw check (1–20 thaws)' : 'Paralysis check (1–25: can\'t move)', dice: [100], mode });
+      if (!r) return;
+      const nb = clone(b), u = nb.units[turnU.id];
+      if (a === 'thaw') { if (r.total <= 20) { u.status = null; nb.turn.step = 'move'; blog(nb, `${u.name} thawed out! (rolled ${r.total})`); } else { blog(nb, `${u.name} is frozen solid. (rolled ${r.total})`); return save(finishTurnSafe(nb)); } }
+      else { if (r.total <= 25) { blog(nb, `${u.name} is paralyzed and can't move! (rolled ${r.total})`); return save(finishTurnSafe(nb)); } nb.turn.step = 'move'; blog(nb, `${u.name} pushes through the paralysis. (rolled ${r.total})`); }
+      return save(nb);
+    }
+    if (a === 'sleep') {
+      const nb = clone(b), u = nb.units[turnU.id];
+      u.slp = Math.max(0, (u.slp || 1) - 1);
+      if (u.slp === 0) { u.status = null; blog(nb, `${u.name} woke up! (its turn is still used)`); } else blog(nb, `${u.name} is fast asleep.`);
+      return save(finishTurnSafe(nb));
+    }
+    if (a === 'use') return useMove(ctx, turnU.id, BUI.move, [...(BUI.targets || [])]);
+  });
+}
+const finishTurnSafe = nb => { finishTurn(nb); return nb; };
+function reachableInBattle(b, mis, u, steps) {   // pass through other Pokémon, not blocked hexes; can't stop on a Pokémon
+  const cells = new Set(mis.cells), bl = new Set(mis.blocked || []), occ = occupied(b);
+  const seen = new Set([u.pos]); let frontier = [u.pos];
+  for (let s = 0; s < steps; s++) {
+    const next = [];
+    for (const k of frontier) { const [q, r] = k.split(',').map(Number);
+      for (const [dq, dr] of NEIGHBORS) { const n = (q + dq) + ',' + (r + dr); if (!seen.has(n) && cells.has(n) && !bl.has(n)) { seen.add(n); next.push(n); } } }
+    frontier = next;
+  }
+  return new Set([...seen].filter(k => k !== u.pos && !occ.has(k)));
+}
+
+// Using a move: accuracy roll, damage roll, effects — then the turn passes on.
+async function useMove(ctx, actorId, moveName, targetIds) {
+  const { c, mis, cid, misNum } = ctx, mode = c.settings?.dice || 'physical';
+  const b = clone(mis.battle), u = b.units[actorId], mv = getMove(moveName);
+  if (!u || !mv) return;
+  const fx = mv.fx, notAuto = !fx || fx.auto === 'no';
+  const dealsDamage = mv.category !== 'Status' && (mv.power || fx?.fixed);
+  if (notAuto && !dealsDamage) {
+    blog(b, `${u.name} used ${mv.name}! (Not automated${fx?.why ? ': ' + fx.why : ''} — resolve it by hand.)`);
+    b.last = { who: u.name, move: mv.name, lines: [] }; BUI = {};
+    return DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
+  }
+  if (notAuto && !confirm(`${mv.name} isn't automated (${fx?.why || 'custom rule'}).\n\nRoll accuracy and damage with its listed power, then apply the rest by hand?`)) return;
+  const roll = async (title, dice) => { const r = await rollDice({ title, dice, mode }); if (!r) throw new Error('cancelled'); return r; };
+  const lines = [];
+  try {
+    blog(b, `${u.name} used ${mv.name}!`);
+    const selfMv = isSelfMove(mv);
+    const targets = selfMv ? [u] : targetIds.map(id => b.units[id]).filter(t => t && onField(b, t));
+    const spread = !selfMv && targets.length > 1;
+    let anyHit = false, dealtTotal = 0;
+    for (const t of targets) {
+      if (!selfMv) {
+        const thr = hitThreshold(mv, u, t);
+        if (thr !== null && thr < 100) {
+          const r = await roll(`${mv.name} → ${t.name}: hits on 1–${thr}`, [100]);
+          if (r.total > thr) { blog(b, `${mv.name} missed ${t.name}. (rolled ${r.total}, needed ${thr} or less)`); continue; }
+        }
+      }
+      anyHit = true;
+      if (dealsDamage) {
+        let dmg = 0, eff = effOf(mv.type, t.types), crit = false;
+        if (fx?.fixed) { dmg = eff === 0 ? 0 : (fx.fixed === 'level' ? u.level : fx.fixed); lines.push(`${mv.name}: fixed damage ${dmg}`); }
+        else {
+          const hits = parseHits(mv.hits); let n = 1;
+          if (Array.isArray(hits)) { const r = await roll(`${mv.name}: number of hits (D20: 1–7 = 2, 8–14 = 3, 15–17 = 4, 18–20 = 5)`, [20]); n = multiHitFromD20(r.total); }
+          else n = hits || 1;
+          const r = await roll(`${mv.name} → ${t.name}: damage roll`, [6, 12, 20]);
+          const cs = Math.min(3, (u.stages.crit || 0) + (fx?.crit === 'always' ? 3 : (fx?.crit || 0)));
+          crit = critFromD20(cs, r.values[2]);
+          const res = calcDamage({ att: u, def: t, move: mv, roll: r.total, crit, spread });
+          dmg = res.damage * n; eff = res.eff;
+          lines.push(`→ ${t.name}:`, ...res.lines, ...(n > 1 ? [`${n} hits × ${res.damage} = ${dmg}`] : []));
+        }
+        const dealt = Math.min(t.hp, dmg); t.hp -= dealt; dealtTotal += dealt;
+        blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit!' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective!' : eff < 1 ? ' — not very effective' : ''}.`);
+        if (t.status === 'frz' && mv.type === 'Fire' && t.hp > 0) { t.status = null; blog(b, `${t.name} thawed out!`); }
+        if (t.hp === 0 && !t.fainted) faint(b, t, u);
+      }
+      if (!notAuto && !t.fainted && t.id !== u.id && (fx.status || fx.target)) {
+        let ok = true;
+        if (fx.chance && fx.chance < 100) { const r = await roll(`${mv.name}: effect chance on ${t.name} (1–${fx.chance})`, [100]); ok = r.total <= fx.chance; if (!ok) blog(b, `No added effect. (rolled ${r.total})`); }
+        if (ok && fx.status) {
+          if (!canGetStatus(t, fx.status, mv)) blog(b, `${t.name} wasn't affected by ${STATUS_NAME[fx.status].toLowerCase()}.`);
+          else {
+            t.status = fx.status;
+            if (fx.status === 'slp') { const r = await roll(`${t.name} falls asleep: D6 for turns (1–2 = 1, 3–4 = 2, 5–6 = 3)`, [6]); t.slp = sleepTurnsFromD6(r.total); }
+            if (fx.status === 'tox') t.tox = 1;
+            blog(b, `${t.name} is now ${STATUS_NAME[fx.status].toLowerCase()}${fx.status === 'slp' ? ` (${t.slp} turn${t.slp > 1 ? 's' : ''})` : ''}.`);
+          }
+        }
+        if (ok && fx.target) blog(b, `${t.name}: ${applyStages(t, fx.target)}.`);
+      }
+    }
+    if (!notAuto && anyHit && !u.fainted) {
+      if (fx.user) { let ok = true; if (fx.userChance && fx.userChance < 100) { const r = await roll(`${mv.name}: chance for ${u.name}'s stat change (1–${fx.userChance})`, [100]); ok = r.total <= fx.userChance; } if (ok) blog(b, `${u.name}: ${applyStages(u, fx.user)}.`); }
+      if (fx.drain && dealtTotal) { const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(dealtTotal * fx.drain / 100))); u.hp += h; blog(b, `${u.name} drained ${h} HP.`); }
+      if (fx.heal) { const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(u.maxHp * fx.heal / 100))); u.hp += h; blog(b, `${u.name} recovered ${h} HP.`); }
+      if (fx.recoil && dealtTotal) { const r = Math.min(u.hp, Math.max(1, Math.floor(dealtTotal * fx.recoil / 100))); u.hp -= r; blog(b, `${u.name} took ${r} recoil damage.`); if (u.hp === 0) faint(b, u, null); }
+    }
+    if (fx?.auto === 'partial') blog(b, `Not automated: ${fx.why} — apply by hand if it happens.`);
+    if (notAuto) blog(b, `Rest of ${mv.name} isn't automated (${fx?.why || 'custom rule'}) — apply by hand.`);
+  } catch (e) { if (e.message === 'cancelled') return toast('Move cancelled — nothing was saved'); throw e; }
+  b.last = { who: u.name, move: mv.name, lines };
+  BUI = {};
+  await DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
+}
+
+// DM: edit any Pokémon by hand (HP, status, stat stages, faint, move on the map)
+function editUnitModal(ctx, id) {
+  const { mis, cid, misNum } = ctx, b0 = mis.battle, u0 = b0.units[id];
+  let st = { hp: u0.hp, status: u0.status, slp: u0.slp || 1, stages: { ...u0.stages } };
+  openModal((card, close, redraw) => {
+    card.innerHTML = `<div class="row">${monImg(u0.name, u0.shiny, 'spr sm')}<h2 style="margin:0">${esc(u0.name)}</h2></div>
+      <label class="field"><span>HP (max ${u0.maxHp})</span><input type="number" id="eHp" min="0" max="${u0.maxHp}" value="${st.hp}"></label>
+      <div><div class="muted" style="margin-bottom:6px">Status</div><div class="seg">${[['', 'None'], ...Object.entries(STATUS_SHORT)].map(([k, l]) => `<button aria-pressed="${(st.status || '') === k}" data-st="${k}">${l}</button>`).join('')}</div>
+        ${st.status === 'slp' ? `<label class="field" style="margin-top:8px"><span>Sleep turns left</span><input type="number" id="eSlp" min="1" max="3" value="${st.slp}"></label>` : ''}</div>
+      <div class="stagegrid">${STAGE_KEYS.map(k => `<div><span>${STAGE_LABEL[k]}</span><button class="icon-btn" data-sd="${k}" data-v="-1">−</button><b>${st.stages[k] > 0 ? '+' : ''}${st.stages[k]}</b><button class="icon-btn" data-sd="${k}" data-v="1">+</button></div>`).join('')}</div>
+      <div class="row">${u0.out && !u0.fainted && !b0.noMap ? '<button class="btn small" data-mv>Move on map</button>' : ''}${!u0.fainted ? '<button class="btn small" data-faint>Faint now</button>' : ''}
+        <div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok>Save</button></div>`;
+    card.querySelectorAll('[data-st]').forEach(x => x.onclick = () => { st.hp = +card.querySelector('#eHp').value; st.status = x.dataset.st || null; redraw(); });
+    card.querySelectorAll('[data-sd]').forEach(x => x.onclick = () => { st.hp = +card.querySelector('#eHp').value; const k = x.dataset.sd; st.stages[k] = Math.max(-6, Math.min(k === 'crit' ? 3 : 6, st.stages[k] + +x.dataset.v)); redraw(); });
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelector('[data-mv]')?.addEventListener('click', () => { BUI.dmMove = id; close(); ctx.redraw(); });
+    card.querySelector('[data-faint]')?.addEventListener('click', () => {
+      const nb = clone(ctx.mis.battle); faint(nb, nb.units[id], null); close();
+      DB.update(MISSION(cid, misNum), { battle: nb.turn?.id === id ? finishTurnSafe(nb) : nb }).catch(saveErr);
+    });
+    card.querySelector('[data-ok]').onclick = () => {
+      const nb = clone(ctx.mis.battle), u = nb.units[id];
+      u.hp = Math.max(0, Math.min(u.maxHp, parseInt(card.querySelector('#eHp').value) || 0));
+      u.status = st.status; u.slp = st.status === 'slp' ? Math.max(1, parseInt(card.querySelector('#eSlp')?.value) || 1) : 0; if (st.status === 'tox' && !u.tox) u.tox = 1;
+      u.stages = st.stages; blog(nb, `DM adjusted ${u.name}.`);
+      if (u.hp === 0 && !u.fainted) faint(nb, u, null);
+      close(); DB.update(MISSION(cid, misNum), { battle: nb }).catch(saveErr);
+    };
+  });
+}
+
+// ---- Finishing a mission: level up, EVs, evolution, re-roll tokens, new catches ----
+async function finishMission(ctx) {
+  const { c, mis, cid, misNum, teams } = ctx, b = mis.battle, N = misNum, L = N + 1;
+  if (!confirm(`Finish Mission ${N}? Everyone's Pokémon go to level ${L}, catches join their teams, and players get their re-rolls and EVs.`)) return;
+  const kosBy = {}; for (const k of b.kos || []) kosBy[k.by] = (kosBy[k.by] || 0) + 1;
+  try {
+    for (const p of c.players || []) {
+      const team = (teams[p.id] || []).map(m => {
+        if (m.step !== 'done') return m;
+        const n = { ...m };
+        if ((n.level || 1) < L) {
+          const evNow = STAT_KEYS.reduce((a, k) => a + (n.evs?.[k] || 0), 0) + (n.evPending || 0);
+          n.evPending = (n.evPending || 0) + Math.max(0, Math.min(10 * (L - n.level), 510 - evNow));
+          n.level = L;
+          const sp = formAtLevel(n.final, L);
+          if (sp && sp !== n.species) { n.evolvedFrom = n.species; n.species = sp; n.ability = abilityBySlot(sp, n.abilitySlot) || n.ability; } else delete n.evolvedFrom;
+        }
+        const k = kosBy['p_' + m.uid] || 0;
+        n.rerolls = k ? { mission: N, left: k } : null; n.reroll = null;
+        return n;
+      });
+      for (const ct of (b.catches || []).filter(x => x.pid === p.id)) {
+        const key = `${N}:${ct.final}`; if (team.some(m => m.catchKey === key)) continue;
+        team.push({ uid: 'm' + Date.now().toString(36) + randInt(1e6).toString(36), final: ct.final, finalName: getLine(ct.final)?.name || ct.species, species: formAtLevel(ct.final, L) || ct.species,
+          pickType: null, level: L, shiny: false, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), evPending: Math.min(510, 10 * L),
+          ivs: null, ivRolls: null, nature: null, natureRolls: null, ability: null, abilitySlot: null, abilityRolls: null, moves: [], step: 'ivs', setupMode: 'catch', catchKey: key });
+      }
+      await DB.set(PLAYER(cid, p.id), { team });
+    }
+    const caught = (b.catches || []).map(x => x.final);
+    await DB.update(CAMP(cid), { takenFinals: [...new Set([...(c.takenFinals || []), ...caught])] });
+    await DB.update(MISSION(cid, N), { phase: 'after' });
+    toast(`Mission ${N} complete!`);
+  } catch (e) { saveErr(e); }
+}
+const abilityBySlot = (species, slot) => { const p = getPokemon(species); if (!p) return null; return slot === 'H' ? (p.hidden || p.abilities?.[0]) : slot === '2' ? (p.abilities?.[1] || p.abilities?.[0]) : p.abilities?.[0]; };
+
+// ---- Player: after the mission (re-rolls, EVs, moves, catches) ----
+function afterMissionPlayer(el, ctx) {
+  const { cid, misNum, pid, team, c } = ctx;
+  const N = misNum, mode = c.settings?.dice || 'physical';
+  const saveMon = async (uid, patch) => {   // always merge into the latest saved team, not this screen's copy
+    try { const d = await once(PLAYER(cid, pid)); await DB.set(PLAYER(cid, pid), { team: (d?.team || team).map(m => m.uid === uid ? { ...m, ...patch } : m) }); }
+    catch (e) { saveErr(e); }
+  };
+  const newCatches = team.filter(m => m.setupMode === 'catch' && m.step !== 'done');
+  el.innerHTML = `<div class="card stack"><h2 style="margin:0">After Mission ${N}</h2>
+    ${newCatches.length ? `<div class="stack" style="--gap:6px"><b>New catches — set them up:</b>${newCatches.map(m => `<div class="row">${monImg(m.species, m.shiny, 'spr sm')}<b>${esc(m.species)}</b><div class="spacer"></div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step] || ''}</button></div>`).join('')}</div>` : ''}
+    ${team.filter(m => m.step === 'done').map(m => `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;--gap:6px">
+      <div><b>${esc(m.species)}</b> <span class="muted">Lv ${m.level}</span>${m.evolvedFrom ? ` <span class="pill up">Evolved from ${esc(m.evolvedFrom)}!</span>` : ''}</div>
+      <div class="row" style="gap:8px">
+        ${m.rerolls?.mission === N && (m.rerolls.left > 0 || m.reroll) ? `<button class="btn small primary" data-rr="${m.uid}">🎲 Re-roll${m.reroll ? ' (result waiting)' : ` (${m.rerolls.left} left)`}</button>` : ''}
+        ${m.evPending ? `<button class="btn small primary" data-ev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}
+        <button class="btn small" data-mvs="${m.uid}">Moves</button></div></div></div>`).join('')}
+    <div class="muted" style="font-size:.9rem">The DM starts the next mission when everyone's ready.</div></div>`;
+  el.querySelectorAll('[data-rr]').forEach(x => x.onclick = () => rerollModal(team.find(m => m.uid === x.dataset.rr), saveMon, mode, N));
+  el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.ev), saveMon));
+  el.querySelectorAll('[data-mvs]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.mvs), saveMon));
+}
+// One re-roll per KO: pick IV, Nature, Ability or Shiny; roll; then keep it or throw it away.
+function rerollModal(m, saveMon, mode, N) {
+  openModal((card, close) => {
+    const rr = m.reroll, p = getPokemon(m.species);
+    if (!rr) {
+      card.innerHTML = `<h2 style="margin:0">Re-roll for ${esc(m.species)}</h2><div class="muted">${m.rerolls.left} left (one per KO). Pick what to roll for. You can keep the result or discard it.</div>
+        <div class="optgrid">${[['iv', 'IV', 'D6+D12+D20 → put it on any stat'], ['nature', 'Nature', 'D100'], ['ability', 'Ability', 'D100'], ['shiny', 'Shiny', 'D6+D12+D20 total of 3']].map(([k, l, d]) => `<button class="opt" data-cat="${k}"><b>${l}</b><small>${d}</small></button>`).join('')}</div>
+        <div class="row"><div class="spacer"></div><button class="btn ghost" data-x>Close</button></div>`;
+      card.querySelector('[data-x]').onclick = close;
+      card.querySelectorAll('[data-cat]').forEach(x => x.onclick = async () => {
+        const cat = x.dataset.cat, dice = cat === 'nature' || cat === 'ability' ? [100] : [6, 12, 20];
+        const r = await rollDice({ title: `${m.species}: ${cat === 'iv' ? 'IV' : cat} re-roll`, dice, mode });
+        if (!r) return;
+        m = { ...m, reroll: { cat, total: r.total }, rerolls: { ...m.rerolls, left: m.rerolls.left - 1 } };
+        await saveMon(m.uid, { reroll: m.reroll, rerolls: m.rerolls }); close(); rerollModal(m, saveMon, mode, N);
+      });
+      return;
+    }
+    const clear = async patch => { await saveMon(m.uid, { ...patch, reroll: null }); close(); };
+    let body = '', choices = '';
+    if (rr.cat === 'iv') {
+      const iv = Math.min(31, rr.total);
+      body = `Rolled <b>${rr.total}</b> → IV <b>${iv}</b>. Put it on a stat, or discard it.`;
+      choices = `<div class="optgrid">${STAT_KEYS.map(k => `<button class="opt" data-iv="${k}"><b>${STAT_LABEL[k]}</b><small>now ${m.ivs[k]}${iv > m.ivs[k] ? ' ▲' : iv < m.ivs[k] ? ' ▼' : ''}</small></button>`).join('')}</div>`;
+    } else if (rr.cat === 'nature') { const n = natureFromD100(rr.total); body = `Rolled <b>${rr.total}</b> → <b>${n}</b> (${natureTag(n)}). Current: ${esc(m.nature)} (${natureTag(m.nature)}).`; choices = `<button class="btn primary" data-keep>Switch to ${n}</button>`; }
+    else if (rr.cat === 'ability') { const a = abilityFromD100(p, rr.total); body = `Rolled <b>${rr.total}</b> → <b>${esc(a.name)}</b>${a.slot === 'H' ? ' (hidden)' : ''}. Current: ${esc(m.ability)}.<div class="muted" style="font-size:.9rem">${esc(getAbility(a.name)?.effect || '')}</div>`; choices = `<button class="btn primary" data-keep>Switch to ${esc(a.name)}</button>`; }
+    else { const hit = rr.total === 3; body = hit ? `Rolled <b>3</b> — <b>it's shiny!</b> ★` : `Rolled <b>${rr.total}</b>. Not shiny (needs a total of 3).`; choices = hit ? `<button class="btn primary" data-keep>Make it shiny ★</button>` : ''; }
+    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}: re-roll result</h2><div>${body}</div>${choices}<div class="row"><div class="spacer"></div><button class="btn ghost" data-discard>${rr.cat === 'shiny' && rr.total !== 3 ? 'OK' : 'Discard'}</button></div>`;
+    card.querySelectorAll('[data-iv]').forEach(x => x.onclick = () => clear({ ivs: { ...m.ivs, [x.dataset.iv]: Math.min(31, rr.total) } }));
+    card.querySelector('[data-keep]')?.addEventListener('click', () => {
+      if (rr.cat === 'nature') clear({ nature: natureFromD100(rr.total) });
+      else if (rr.cat === 'ability') { const a = abilityFromD100(p, rr.total); clear({ ability: a.name, abilitySlot: a.slot }); }
+      else clear({ shiny: true });
+    });
+    card.querySelector('[data-discard]').onclick = () => clear({});
+  });
+}
+// Place this level's EVs: any split, at most 252 per stat and 510 in total.
+function evModal(m, saveMon) {
+  const add = Object.fromEntries(STAT_KEYS.map(k => [k, 0]));
+  const p = getPokemon(m.species);
+  openModal((card, close, redraw) => {
+    const used = STAT_KEYS.reduce((a, k) => a + add[k], 0), left = m.evPending - used;
+    const total = k => (m.evs?.[k] || 0) + add[k];
+    card.innerHTML = `<h2 style="margin:0">Place EVs: ${esc(m.species)}</h2><div class="muted"><b>${left}</b> of ${m.evPending} left. Max 252 per stat, 510 total.</div>
+      <table class="stats"><thead><tr><th></th><th>EVs</th><th>Add</th><th></th><th>Stat (Lv ${m.level})</th></tr></thead><tbody>${STAT_KEYS.map(k => `<tr><th>${STAT_LABEL[k]}</th><td>${total(k)}</td>
+        <td><button class="icon-btn" data-d="${k}" data-v="-10">−</button> <b>${add[k]}</b> <button class="icon-btn" data-d="${k}" data-v="10">+</button></td>
+        <td><button class="btn small ghost" data-d="${k}" data-v="1">+1</button></td><td>${calcStat(k, p.stats[k], m.ivs[k], total(k), m.level, m.nature)}</td></tr>`).join('')}</tbody></table>
+      <div class="row"><button class="btn ghost" data-x>Cancel</button><div class="spacer"></div><button class="btn primary" data-ok ${used ? '' : 'disabled'}>Save</button></div>`;
+    card.querySelectorAll('[data-d]').forEach(x => x.onclick = () => {
+      const k = x.dataset.d, v = +x.dataset.v;
+      const room = Math.min(left, 252 - total(k)), next = v > 0 ? add[k] + Math.min(v, room) : Math.max(0, add[k] + v);
+      add[k] = next; redraw();
+    });
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelector('[data-ok]').onclick = () => { saveMon(m.uid, { evs: Object.fromEntries(STAT_KEYS.map(k => [k, total(k)])), evPending: left }); close(); };
+  });
+}
+function movesModal(m, saveMon) {
+  const all = knowableMoves(m.species, m.level);
+  let pick = [...(m.moves || [])];
+  openModal((card, close, redraw) => {
+    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}'s moves</h2><div class="muted">Any 4 of the level-up moves it knows at level ${m.level}.</div>
+      <div class="stack" style="max-height:55vh;overflow:auto">${all.map(mv => `<button class="opt wide ${pick.includes(mv) ? 'on' : ''}" data-m="${esc(mv)}">${moveCardHTML(mv)}</button>`).join('')}</div>
+      <div class="row"><span class="muted">${pick.length}/4</span><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok ${pick.length ? '' : 'disabled'}>Save</button></div>`;
+    card.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { const mv = x.dataset.m; if (pick.includes(mv)) pick = pick.filter(y => y !== mv); else if (pick.length < 4) pick.push(mv); else return toast('4 moves max'); redraw(); });
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelector('[data-ok]').onclick = () => { saveMon(m.uid, { moves: pick }); close(); };
+  });
+}
+
 // ---- Router: the part of the address after # decides the screen ----
 function route() {
-  unwatch?.(); unwatch = null;
+  unwatch?.(); unwatch = null; BUI = {};
   window.scrollTo(0, 0);
   const h = location.hash || '#/';
   let m;
@@ -1227,7 +2100,7 @@ function hexShape(shape, p) {
   return out;
 }
 // Draws a map into an <svg>. o = { cells, ghosts, blocked, starts, symbols{typeId:key},
-// tokens{playerId:key}, players, colorOf, selected, mine, reach (Set of hexes to light up) }. onTap(key) runs when a hex is tapped.
+// tokens{playerId:key}, players, colorOf, selected, mine, reach (Set of hexes to light up), wilds, units[{key,img,ring,hp,mine}] }. onTap(key) runs when a hex is tapped.
 function renderBoard(svg, o, onTap) {
   const S = 10, W = Math.sqrt(3) * S;
   const xy = key => { const [q, r] = key.split(',').map(Number); return [W * (q + r / 2), 1.5 * S * r]; };
@@ -1240,10 +2113,10 @@ function renderBoard(svg, o, onTap) {
   const vw = Math.max(...xs) - minX + W, vh = Math.max(...ys) - minY + S * 1.3;
   svg.setAttribute('viewBox', `${minX} ${minY} ${vw} ${vh}`);
   svg.style.aspectRatio = `${vw} / ${vh}`;   // the box takes the map's own proportions (no empty bands)
-  const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []);
+  const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []), wilds = new Set(o.wilds || []);
   let h = `<defs><clipPath id="tclip"><circle cx="22" cy="22" r="21"/></clipPath></defs>`;
   for (const k of o.ghosts || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell ghost" points="${poly(x, y, S * .96)}"/></g>`; }
-  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : o.reach?.has(k) ? ' reach' : starts.has(k) ? ' start' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
+  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : o.reach?.has(k) ? ' reach' : starts.has(k) ? ' start' : wilds.has(k) ? ' wild' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
   for (const [t, k] of Object.entries(o.symbols || {})) {   // type icons: the left (symbol) part of PokeAPI's label art, clipped round
     const [x, y] = xy(k), d = S * 1.35;
     h += `<svg class="sym" x="${x - d / 2}" y="${y - d / 2}" width="${d}" height="${d}" viewBox="0 0 44 44"><circle cx="22" cy="22" r="21" class="symbg"/><image href="${typeIconUrl(t)}" width="200" height="44" clip-path="url(#tclip)"/></svg>`;
@@ -1253,6 +2126,12 @@ function renderBoard(svg, o, onTap) {
     if (!k || !(o.players || []).some(p => p.id === pid)) continue;
     const [x, y] = xy(k), two = inits[pid].length > 1;
     h += `<g class="tok${pid === o.mine ? ' mine' : ''}"><polygon points="${poly(x, y, S * .9)}" fill="${o.colorOf(pid)}"/><text x="${x}" y="${y + .3}" style="font-size:${two ? 6.5 : 9}px">${esc(inits[pid])}</text></g>`;
+  }
+  for (const u of o.units || []) {   // battle tokens: the Pokémon's picture, a ring in its trainer's color, and an HP bar
+    if (!u.key || u.key === 'table') continue;
+    const [x, y] = xy(u.key), w = S * 1.5;
+    h += `<g class="unit${u.mine ? ' mine' : ''}"><polygon points="${poly(x, y, S * .9)}" class="ubg" style="stroke:${u.ring}"/>${u.img ? `<image href="${u.img}" x="${x - w / 2}" y="${y - w / 2 - 1}" width="${w}" height="${w}"/>` : ''}
+      <rect x="${x - 6}" y="${y + 5.6}" width="12" height="1.8" rx=".9" class="hpbg"/><rect x="${x - 6}" y="${y + 5.6}" width="${(12 * Math.max(0, u.hp)).toFixed(2)}" height="1.8" rx=".9" fill="${u.hp > .5 ? 'var(--ok)' : u.hp > .2 ? '#e0a400' : 'var(--bad)'}"/></g>`;
   }
   if (o.selected) { const [x, y] = xy(o.selected); h += `<polygon class="sel" points="${poly(x, y, S * 1.02)}"/>`; }
   svg.innerHTML = h;
