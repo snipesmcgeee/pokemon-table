@@ -205,6 +205,8 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .stagegrid > div { display: flex; align-items: center; gap: 6px; } .stagegrid span { width: 56px; font-weight: 650; font-size: .85rem; } .stagegrid b { width: 28px; text-align: center; }
 .modal-card { max-width: 640px !important; max-height: 92vh; overflow: auto; }
 .tchip.t-Normal{background:#a8a77a;color:#fff}.tchip.t-Fire{background:#ee8130;color:#fff}.tchip.t-Water{background:#6390f0;color:#fff}.tchip.t-Electric{background:#f7d02c;color:#333}.tchip.t-Grass{background:#7ac74c;color:#fff}.tchip.t-Ice{background:#96d9d6;color:#234}.tchip.t-Fighting{background:#c22e28;color:#fff}.tchip.t-Poison{background:#a33ea1;color:#fff}.tchip.t-Ground{background:#e2bf65;color:#333}.tchip.t-Flying{background:#a98ff3;color:#fff}.tchip.t-Psychic{background:#f95587;color:#fff}.tchip.t-Bug{background:#a6b91a;color:#fff}.tchip.t-Rock{background:#b6a136;color:#fff}.tchip.t-Ghost{background:#735797;color:#fff}.tchip.t-Dragon{background:#6f35fc;color:#fff}.tchip.t-Dark{background:#705746;color:#fff}.tchip.t-Steel{background:#b7b7ce;color:#333}.tchip.t-Fairy{background:#d685ad;color:#fff}
+.fieldbar { padding: 10px 14px; border-radius: 12px; background: linear-gradient(90deg, var(--warn-soft), var(--surface-2)); font-weight: 700; }
+.abil { font-size: .8rem; color: var(--muted); }
 details.card > summary { cursor: pointer; list-style: revert; }
 #status, .brand { white-space: nowrap; }
 #status { min-width: 0; overflow: hidden; }
@@ -1021,7 +1023,16 @@ function screenMapSetup(cid) {
 // ---- Player home (phone) ----
 function screenPlayer(cid, pid) {
   let c = null, mis, misNum = null, misUnwatch = null, team = [], picking = false;
-  const teamUnwatch = DB.watchDoc(PLAYER(cid, pid), d => { team = d?.team || []; if (c) draw(); });
+  const teamUnwatch = DB.watchDoc(PLAYER(cid, pid), d => {
+    team = d?.team || [];
+    // Every Pokémon has 10 EVs per level (max 510). Top up any that are short (fixes teams made before this rule was wired in).
+    const fixed = team.map(m => { const have = STAT_KEYS.reduce((a, k) => a + (m.evs?.[k] || 0), 0) + (m.evPending || 0), want = Math.min(510, 10 * (m.level || 1)); return have < want ? { ...m, evPending: (m.evPending || 0) + want - have } : m; });
+    if (fixed.some((m, i) => m !== team[i])) { DB.set(PLAYER(cid, pid), { team: fixed }).catch(saveErr); return; }
+    if (c) draw();
+  });
+  const saveMon = async (uid, patch) => {
+    try { const d = await once(PLAYER(cid, pid)); await DB.set(PLAYER(cid, pid), { team: (d?.team || team).map(m => m.uid === uid ? { ...m, ...patch } : m) }); } catch (e) { saveErr(e); }
+  };
   const draftCard = () => {   // Mission 0 starter picks, in claim order
     const d = mis?.draft; if (!d) return '';
     const cur = d.active ? d.order[d.turn] : null;
@@ -1037,12 +1048,15 @@ function screenPlayer(cid, pid) {
   const teamCard = () => {
     const draftOn = !!mis?.draft?.active;
     if (!team.length) return `<div class="card"><h2>Your team (0)</h2><div class="muted">${mis?.draft ? 'Your starters will appear here as you pick them.' : 'Claim two types in the chase; then you pick a starter from each.'}</div></div>`;
-    return `<div class="card stack"><h2 style="margin:0">Your team (${team.length})</h2>${team.map(m => {
+    const canEdit = !draftOn && mis?.phase !== 'battle' && mis?.phase !== 'after';
+    return `<div class="card stack"><h2 style="margin:0">Your team (${team.length})</h2><div class="muted" style="font-size:.85rem">Sorted by total stats.</div>${[...byTotal(team.filter(m => m.step === 'done')), ...team.filter(m => m.step !== 'done')].map(m => {
       const p = getPokemon(m.species);
       return `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;min-width:0">
         <div><b style="font-size:1.1rem">${esc(m.species)}</b> ${m.shiny ? '<span class="pill">★ Shiny</span>' : ''}<div class="muted" style="font-size:.9rem">Lv ${m.level} · ${(p?.types || []).join(' / ')} · becomes ${esc(m.finalName)}</div></div>
         ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
-            <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div></div>`
+            <div class="statline">${statLine(m)}</div>
+            <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div>
+            ${canEdit ? `<div class="row" style="gap:8px;margin-top:6px">${m.evPending ? `<button class="btn small primary" data-tev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}<button class="btn small" data-tmv="${m.uid}">Moves</button></div>` : ''}</div>`
           : draftOn ? `<div class="muted">Setup opens once everyone has picked.</div>`
           : `<div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step]}</button></div>`}
       </div></div>`;
@@ -1086,7 +1100,7 @@ function screenPlayer(cid, pid) {
       if (!confirm(`Pick ${s.startsAs}? It becomes ${s.pick} at the end of its line.`)) return;
       picking = true;
       const mon = { uid: 'm' + Date.now().toString(36) + randInt(1e6).toString(36), final: s.final, finalName: s.pick, species: s.startsAs, pickType: s.type,
-        level: 1, shiny: true, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), ivs: null, ivRolls: null,
+        level: 1, shiny: true, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), evPending: 10, ivs: null, ivRolls: null,
         nature: null, natureRolls: null, ability: null, abilitySlot: null, abilityRolls: null, moves: [], step: 'ivs' };
       try {   // only the current picker can write here, so these steps can't collide
         await DB.set(PLAYER(cid, pid), { team: [...team, mon] });
@@ -1097,6 +1111,8 @@ function screenPlayer(cid, pid) {
       } catch (e) { saveErr(e); }
       picking = false;
     });
+    app.querySelectorAll('[data-tev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.tev), saveMon));
+    app.querySelectorAll('[data-tmv]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.tmv), saveMon));
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
     const area = document.getElementById('missionArea');
     if (area) {
@@ -1309,9 +1325,21 @@ const STATUS_NAME = { brn: 'Burned', par: 'Paralyzed', psn: 'Poisoned', tox: 'Ba
 const STATUS_SHORT = { brn: 'BRN', par: 'PAR', psn: 'PSN', tox: 'TOX', slp: 'SLP', frz: 'FRZ' };
 const STATUS_IMMUNE = { brn: ['Fire'], par: ['Electric'], psn: ['Poison', 'Steel'], tox: ['Poison', 'Steel'], frz: ['Ice'], slp: [] };
 const pokeRound = v => (v % 1 > 0.5 ? Math.ceil(v) : Math.floor(v));   // the games round .5 down here
-function currentSpeed(u) {
+function currentSpeed(u, b) {   // speed after stages, paralysis, and speed abilities in weather/terrain
   let s = Math.floor(u.stats.spe * stageMult(u.stages.spe));
-  if (u.status === 'par') s = Math.floor(s / 2);
+  const a = b ? abil(b, u) : null; let m = 1;
+  if (b) {
+    if (a === 'Swift Swim' && rainNow(b)) m *= 2;
+    if (a === 'Chlorophyll' && sunFor(b, u)) m *= 2;
+    if (a === 'Sand Rush' && weatherNow(b) === 'sand') m *= 2;
+    if (a === 'Slush Rush' && snowOrHail(b)) m *= 2;
+    if (a === 'Surge Surfer' && terrainNow(b) === 'electric') m *= 2;
+    if (a === 'Quick Feet' && u.status) m *= 1.5;
+    if (a === 'Slow Start' && (u.ab?.slowStart || 0) < 5) m *= .5;
+    if (boosterStat(b, u) === 'spe') m *= 1.5;
+  }
+  s = Math.floor(s * m);
+  if (u.status === 'par' && a !== 'Quick Feet') s = Math.floor(s / 2);
   return Math.max(1, s);
 }
 const SELF_TARGETS = ['Self', 'Self or ally', 'Your team', 'Your side', 'All allies', 'One ally'];
@@ -1320,36 +1348,6 @@ const parseHits = h => { if (typeof h === 'number') return h; const m = String(h
 const multiHitFromD20 = d => d <= 7 ? 2 : d <= 14 ? 3 : d <= 17 ? 4 : 5;   // the games' 35/35/15/15 odds
 const critFromD20 = (stage, d20) => stage >= 3 || (stage === 2 && d20 >= 11) || (stage === 1 && d20 >= 19) || d20 === 20;
 const sleepTurnsFromD6 = d => d <= 2 ? 1 : d <= 4 ? 2 : 3;
-
-// Accuracy: hits when the D100 is at or below this number (accuracy/evasion stages adjust it like the games).
-function hitThreshold(move, att, def) {
-  if (move.alwaysHits || move.accuracy == null) return null;
-  const s = Math.max(-6, Math.min(6, (att.stages.acc || 0) - (def.stages.eva || 0)));
-  return Math.floor(move.accuracy * (s >= 0 ? (3 + s) / 3 : 3 / (3 - s)));
-}
-
-// The damage formula, step by step with the games' rounding. roll = D6+D12+D20 total.
-function calcDamage({ att, def, move, roll, crit, spread }) {
-  const phys = move.category === 'Physical';
-  const ak = phys ? 'atk' : 'spa', dk = phys ? 'def' : 'spd';
-  const as = att.stages[ak] || 0, ds = def.stages[dk] || 0;
-  const A = Math.floor(att.stats[ak] * stageMult(crit && as < 0 ? 0 : as));
-  const D = Math.floor(def.stats[dk] * stageMult(crit && ds > 0 ? 0 : ds));
-  const L = att.level, P = move.power;
-  const lines = [];
-  let x = Math.floor(Math.floor(Math.floor(2 * L / 5 + 2) * P * A / D) / 50) + 2;
-  lines.push(`Base: Lv ${L}, power ${P}, ${STAT_LABEL[ak]} ${A} vs ${STAT_LABEL[dk]} ${D} → ${x}`);
-  if (spread) { x = pokeRound(x * 0.75); lines.push(`Several targets ×0.75 → ${x}`); }
-  if (crit) { x = Math.floor(x * 1.5); lines.push(`Critical hit ×1.5 → ${x}`); }
-  x = Math.floor(x * (217 + roll) / 255); lines.push(`Roll ${roll}: ×(217+${roll})/255 → ${x}`);
-  if (att.types.includes(move.type)) { x = pokeRound(x * 1.5); lines.push(`STAB ×1.5 → ${x}`); }
-  const mults = typeMults(move.type, def.types), eff = mults.reduce((a, b) => a * b, 1);
-  for (const m of mults) if (m !== 1) x = Math.floor(x * m);
-  if (eff !== 1) lines.push(`Type ×${eff} → ${x}`);
-  if (phys && att.status === 'brn') { x = pokeRound(x * 0.5); lines.push(`Burned ×0.5 → ${x}`); }
-  if (eff === 0) x = 0; else x = Math.max(1, x);
-  return { damage: x, eff, lines };
-}
 
 // Wild Pokémon: IVs 31, neutral nature, EVs 252 / 252 / 4 into the three highest base stats
 // (ties broken in the order HP, DEF, SP DEF, SPD, ATK, SP ATK).
@@ -1396,13 +1394,13 @@ const onField = (b, u) => u.out && !u.fainted && (b.noMap || !!u.pos);
 function pickNext(b) {
   const act = Object.values(b.units).filter(u => onField(b, u));
   if (!act.length) return null;
-  const need = u => speedTier(currentSpeed(u)).order - u.meter;
+  const need = u => speedTier(currentSpeed(u, b)).order - u.meter;
   const k = Math.max(0, Math.min(...act.map(need)));
   act.forEach(u => u.meter += k);
   const ready = act.filter(u => need(u) <= 0);
-  ready.sort((a, b2) => currentSpeed(b2) - currentSpeed(a) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
+  ready.sort((a, b2) => currentSpeed(b2, b) - currentSpeed(a, b) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
   const win = ready[0];
-  if (ready.length > 1 && currentSpeed(ready[1]) === currentSpeed(win) && ready[1].side === win.side) {
+  if (ready.length > 1 && currentSpeed(ready[1], b) === currentSpeed(win, b) && ready[1].side === win.side) {
     b.init = [...b.init.filter(id => id !== win.id), win.id];   // won a tie on the hidden list → goes to the bottom
   }
   win.meter = 0;
@@ -1422,6 +1420,10 @@ function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is w
   const u = pickNext(b); if (!u) return;
   b.turn = { id: u.id, step: ['frz', 'par', 'slp'].includes(u.status) ? 'start' : 'move', roll: null };
   blog(b, `— ${u.name}'s turn (${sideName(b, u)})`);
+  if (abil(b, u) === 'Truant') {   // Truant: every other turn is spent loafing around
+    if (ab(u).loaf) { ab(u).loaf = false; blog(b, `${u.name} is loafing around (Truant).`); return finishTurn(b); }
+    ab(u).loaf = true;
+  }
 }
 const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-60); };
 const sideName = (b, u) => u.side === 'w' ? 'wild' : (b.names?.[u.owner] || 'player');
@@ -1430,19 +1432,27 @@ const sideName = (b, u) => u.side === 'w' ? 'wild' : (b.names?.[u.owner] || 'pla
 function finishTurn(b) {
   const u = b.units[b.turn?.id];
   if (u && onField(b, u)) {
-    let d = 0;
-    if (u.status === 'brn') d = Math.max(1, Math.floor(u.maxHp / 16));
-    if (u.status === 'psn') d = Math.max(1, Math.floor(u.maxHp / 8));
-    if (u.status === 'tox') { d = Math.max(1, Math.floor(u.maxHp * Math.max(1, u.tox) / 16)); u.tox = Math.max(1, u.tox) + 1; }
-    if (d) { u.hp = Math.max(0, u.hp - d); blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) faint(b, u, null); }
+    endOfTurnAbilities(b, u);
+    const a = abil(b, u);
+    if (!u.fainted && ['psn', 'tox'].includes(u.status) && a === 'Poison Heal') { if (u.hp < u.maxHp) blog(b, `${u.name}'s Poison Heal restores ${heal(u, u.maxHp / 8)} HP.`); }
+    else if (!u.fainted && u.status && a !== 'Magic Guard') {
+      let d = 0;
+      if (u.status === 'brn') d = Math.max(1, Math.floor(u.maxHp / (a === 'Heatproof' ? 32 : 16)));
+      if (u.status === 'psn') d = Math.max(1, Math.floor(u.maxHp / 8));
+      if (u.status === 'tox') { d = Math.max(1, Math.floor(u.maxHp * Math.max(1, u.tox) / 16)); u.tox = Math.max(1, u.tox) + 1; }
+      if (d) { d = Math.min(u.hp, d); u.hp -= d; blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) faint(b, u, null); }
+    }
   }
+  if (u) tickField(b, u);
   startTurn(b);
 }
 // A Pokémon faints: KO credit, catch, and who must send out a replacement.
 function faint(b, v, killer) {
   v.fainted = true; v.out = false; v.pos = null; v.hp = 0; v.status = null;
   blog(b, `${v.name} fainted!`);
+  if (!killer) onKO(b, null, v);
   if (killer && killer.id !== v.id) {
+    onKO(b, killer, v);
     killer.kos = (killer.kos || 0) + 1;
     b.kos = [...(b.kos || []), { by: killer.id, victim: v.id }];
     if (killer.side === 'p' && v.side === 'w') {
@@ -1459,14 +1469,6 @@ function faint(b, v, killer) {
   if (!wildLeft) { b.over = 'players'; blog(b, 'Every wild Pokémon is down — the mission is won!'); }
   else if (!playersLeft) { b.over = 'wild'; blog(b, 'Every player Pokémon has fainted.'); }
 }
-const applyStages = (u, ch) => { const out = []; for (const [k, v] of Object.entries(ch || {})) { const was = u.stages[k] || 0, now = Math.max(-6, Math.min(6, was + v)); u.stages[k] = now; out.push(now === was ? `${STAGE_LABEL[k]} won't go ${v > 0 ? 'higher' : 'lower'}` : `${STAGE_LABEL[k]} ${v > 0 ? '+' : ''}${now - was}`); } return out.join(', '); };
-function canGetStatus(u, st, move) {
-  if (u.status) return false;
-  if (STATUS_IMMUNE[st].some(t => u.types.includes(t))) return false;
-  if (move?.name === 'Thunder Wave' && effOf('Electric', u.types) === 0) return false;
-  return true;
-}
-
 // ---- Hex helpers for placement ----
 const hexDistance = (a, b2) => { const [q1, r1] = a.split(',').map(Number), [q2, r2] = b2.split(',').map(Number); const dq = q1 - q2, dr = r1 - r2; return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)); };
 const occupied = b => new Set(Object.values(b.units).filter(u => onField(b, u)).map(u => u.pos));
@@ -1480,6 +1482,522 @@ function legalPlayerHexes(b, mis) {
   const limit = enemies.length ? Math.min(...enemies.map(e => fromStart(e.pos))) : Infinity;
   return new Set(open.filter(k => starts.includes(k) || (enemies.every(e => hexDistance(k, e.pos) >= 3) && fromStart(k) <= limit)));
 }
+
+
+// ---- Weather & terrain ----
+// Both last 5 of the setter's own turns (the turn it's set counts). If the setter leaves the field,
+// they count down on its trainer's turns instead. Strong weathers last while their Pokémon is on the field.
+const WEATHER_NAME = { rain: 'Rain', heavyrain: 'Heavy rain', sun: 'Harsh sunlight', harshsun: 'Extremely harsh sunlight', sand: 'Sandstorm', hail: 'Hail', snow: 'Snow', wind: 'Strong winds' };
+const TERRAIN_NAME = { electric: 'Electric Terrain', grassy: 'Grassy Terrain', misty: 'Misty Terrain', psychic: 'Psychic Terrain' };
+const STRONG_WEATHER = { 'Primordial Sea': 'heavyrain', 'Desolate Land': 'harshsun', 'Delta Stream': 'wind' };
+const fieldUnits = b => Object.values(b.units).filter(u => onField(b, u));
+const allies = (b, u) => fieldUnits(b).filter(x => x.id !== u.id && x.side === u.side);
+const foes = (b, u) => fieldUnits(b).filter(x => x.side !== u.side);
+const weatherNow = b => { const w = b?.weather?.kind; return w && !fieldUnits(b).some(u => ['Air Lock', 'Cloud Nine'].includes(abil(b, u))) ? w : null; };
+const sunFor = (b, u) => ['sun', 'harshsun'].includes(weatherNow(b)) || (!!u && abil(b, u) === 'Mega Sol');
+const rainNow = b => ['rain', 'heavyrain'].includes(weatherNow(b));
+const snowOrHail = b => ['snow', 'hail'].includes(weatherNow(b));
+const terrainNow = b => b?.terrain?.kind || null;
+const grounded = (b, u) => !u.types.includes('Flying') && !['Levitate', 'Eelevate'].includes(abil(b, u));
+const fieldText = b => [weatherNow(b) && `${WEATHER_NAME[b.weather.kind]}${b.weather.left != null ? ` (${b.weather.left} left)` : ''}`, terrainNow(b) && `${TERRAIN_NAME[b.terrain.kind]} (${b.terrain.left} left)`].filter(Boolean).join(' · ');
+function setWeather(b, kind, setter, strong = false) {
+  const cur = b.weather?.kind;
+  if (['heavyrain', 'harshsun', 'wind'].includes(cur) && !strong) { blog(b, `The ${WEATHER_NAME[cur].toLowerCase()} can't be replaced.`); return false; }
+  if (cur === kind) { blog(b, `${WEATHER_NAME[kind]} is already active.`); return false; }
+  b.weather = { kind, left: strong ? null : 5, setter: setter.id, side: setter.side, owner: setter.owner };
+  blog(b, `${WEATHER_NAME[kind]} began${strong ? '' : ` (lasts 5 of ${setter.name}'s turns)`}.`);
+  if (kind === 'snow' || kind === 'hail') Object.values(b.units).forEach(x => { if (x.ab) x.ab.iceFaceBroken = false; });
+  return true;
+}
+function setTerrain(b, kind, setter) {
+  if (b.terrain?.kind === kind) { blog(b, `${TERRAIN_NAME[kind]} is already active.`); return false; }
+  b.terrain = { kind, left: 5, setter: setter.id, side: setter.side, owner: setter.owner };
+  blog(b, `${TERRAIN_NAME[kind]} covered the field (lasts 5 of ${setter.name}'s turns).`);
+  fieldUnits(b).forEach(x => mimicry(b, x));
+  return true;
+}
+function clearTerrain(b) { if (b.terrain) { blog(b, `${TERRAIN_NAME[b.terrain.kind]} disappeared.`); b.terrain = null; fieldUnits(b).forEach(x => mimicry(b, x)); } }
+function tickField(b, actor) {
+  for (const key of ['weather', 'terrain']) {
+    const f = b[key]; if (!f) continue;
+    if (f.left == null) { if (!fieldUnits(b).some(x => STRONG_WEATHER[abil(b, x)] === f.kind)) { blog(b, `The ${WEATHER_NAME[f.kind].toLowerCase()} faded.`); b[key] = null; } continue; }
+    const setter = b.units[f.setter];
+    const trainerOn = Object.values(b.units).some(x => x.side === f.side && x.owner === f.owner && onField(b, x));
+    const counts = setter && onField(b, setter) ? actor.id === f.setter : trainerOn ? (actor.side === f.side && actor.owner === f.owner) : true;
+    if (!counts) continue;
+    if (--f.left <= 0) { blog(b, `${key === 'weather' ? WEATHER_NAME[f.kind] : TERRAIN_NAME[f.kind]} ended.`); b[key] = null; if (key === 'terrain') fieldUnits(b).forEach(x => mimicry(b, x)); }
+  }
+}
+
+// ---- Abilities ----
+// abil(b, u): the ability that's working right now (Neutralizing Gas switches the others off).
+const abil = (b, u) => {
+  if (!u) return null;
+  const a = u.ab?.now || u.ability;
+  if (b && a !== 'Neutralizing Gas' && Object.values(b.units).some(x => x.id !== u.id && onField(b, x) && (x.ab?.now || x.ability) === 'Neutralizing Gas')) return null;
+  return a;
+};
+const MOLD = ['Mold Breaker', 'Teravolt', 'Turboblaze'];
+const UNBREAKABLE = new Set(['Shadow Shield', 'Prism Armor', 'Full Metal Body', 'Comatose']);
+// The defender's ability as the attacker sees it (Mold Breaker ignores most of them).
+const defAb = (b, att, def) => { const a = abil(b, def); return a && att && att.id !== def.id && MOLD.includes(abil(b, att)) && !UNBREAKABLE.has(a) ? null : a; };
+const ab = u => (u.ab = u.ab || {});   // per-battle ability memory (Flash Fire boost, Disguise used, …)
+const stat = (u, k) => Math.floor(u.stats[k] * stageMult(u.stages[k] || 0));
+const highestStat = u => ['atk', 'def', 'spa', 'spd', 'spe'].reduce((best, k) => stat(u, k) > stat(u, best) ? k : best, 'atk');
+const boosterStat = (b, u) => { const a = abil(b, u); return (a === 'Protosynthesis' && sunFor(b, u)) || (a === 'Quark Drive' && terrainNow(b) === 'electric') ? highestStat(u) : null; };
+function mimicry(b, u) {
+  if (abil(b, u) !== 'Mimicry') return;
+  const t = { electric: 'Electric', grassy: 'Grass', misty: 'Fairy', psychic: 'Psychic' }[terrainNow(b)];
+  u.types = t ? [t] : (getPokemon(u.name)?.types || u.types);
+}
+const heal = (u, amt) => { const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(amt))); u.hp += h; return h; };
+const hurt = (b, u, amt, why, killer = null) => {
+  if (abil(b, u) === 'Magic Guard' || u.fainted) return 0;
+  const d = Math.min(u.hp, Math.max(1, Math.floor(amt))); u.hp -= d;
+  blog(b, `${u.name} lost ${d} HP (${why}).`);
+  if (u.hp === 0) faint(b, u, killer);
+  return d;
+};
+
+// Stat changes, with every ability that blocks, reverses, doubles or reacts to them.
+function applyStages(u, ch, b, src) {
+  const a = b ? abil(b, u) : null, out = [];
+  const changes = Object.fromEntries(Object.entries(ch || {}).map(([k, v]) => [k, a === 'Contrary' ? -v : a === 'Simple' ? v * 2 : v]));
+  let droppedByFoe = false, raised = {};
+  for (const [k, v] of Object.entries(changes)) {
+    if (v < 0 && src && src.id !== u.id && b) {
+      const da = defAb(b, src, u);
+      const blocker = ['Clear Body', 'White Smoke', 'Full Metal Body'].includes(da) || (da === 'Hyper Cutter' && k === 'atk') || (da === 'Big Pecks' && k === 'def')
+        || (["Keen Eye", "Mind's Eye", 'Illuminate'].includes(da) && k === 'acc') || (allies(b, u).concat(u).some(x => abil(b, x) === 'Flower Veil') && u.types.includes('Grass'));
+      if (blocker) { out.push(`${da || 'Flower Veil'} stops the ${STAGE_LABEL[k]} drop`); continue; }
+      if (da === 'Mirror Armor') { out.push(`Mirror Armor bounces it back — ${src.name}: ${applyStages(src, { [k]: v }, b, null)}`); continue; }
+    }
+    const was = u.stages[k] || 0, max = k === 'crit' ? 3 : 6, now = Math.max(-6, Math.min(max, was + v));
+    u.stages[k] = now;
+    out.push(now === was ? `${STAGE_LABEL[k]} won't go ${v > 0 ? 'higher' : 'lower'}` : `${STAGE_LABEL[k]} ${now > was ? '+' : ''}${now - was}`);
+    if (now < was && src && src.id !== u.id && src.side !== u.side) droppedByFoe = true;
+    if (now > was) raised[k] = now - was;
+  }
+  if (droppedByFoe && b) {
+    if (a === 'Defiant') out.push(`Defiant: ${applyStages(u, { atk: 2 }, b, u)}`);
+    if (a === 'Competitive') out.push(`Competitive: ${applyStages(u, { spa: 2 }, b, u)}`);
+  }
+  if (b && Object.keys(raised).length && !(src && src.ab?.copying)) {   // Opportunist copies a foe's boosts
+    for (const f of foes(b, u)) if (abil(b, f) === 'Opportunist') { ab(f).copying = true; out.push(`${f.name}'s Opportunist copies it: ${applyStages(f, raised, b, f)}`); ab(f).copying = false; }
+  }
+  return out.join(', ');
+}
+
+// Can this Pokémon be given this status right now?
+const STATUS_BLOCK = { Insomnia: ['slp'], 'Vital Spirit': ['slp'], 'Sweet Veil': ['slp'], Limber: ['par'], Immunity: ['psn', 'tox'], 'Pastel Veil': ['psn', 'tox'],
+  'Water Veil': ['brn'], 'Water Bubble': ['brn'], 'Thermal Exchange': ['brn'], 'Magma Armor': ['frz'], 'Purifying Salt': ['brn', 'par', 'psn', 'tox', 'slp', 'frz'], Comatose: ['brn', 'par', 'psn', 'tox', 'slp', 'frz'] };
+function canGetStatus(u, st, move, b, src) {
+  if (u.status || u.fainted) return false;
+  const corrosion = src && b && abil(b, src) === 'Corrosion' && ['psn', 'tox'].includes(st);
+  if (STATUS_IMMUNE[st].some(t => u.types.includes(t)) && !corrosion) return false;
+  if (move?.name === 'Thunder Wave' && effOf('Electric', u.types) === 0) return false;
+  if (!b) return true;
+  const a = defAb(b, src, u);
+  if ((STATUS_BLOCK[a] || []).includes(st)) return false;
+  if (a === 'Leaf Guard' && sunFor(b)) return false;
+  if (st === 'slp' && allies(b, u).some(x => abil(b, x) === 'Sweet Veil')) return false;
+  if (['psn', 'tox'].includes(st) && allies(b, u).some(x => abil(b, x) === 'Pastel Veil')) return false;
+  if (u.types.includes('Grass') && allies(b, u).concat(u).some(x => abil(b, x) === 'Flower Veil')) return false;
+  if (st === 'frz' && sunFor(b)) return false;
+  if (grounded(b, u) && terrainNow(b) === 'misty') return false;
+  if (st === 'slp' && grounded(b, u) && terrainNow(b) === 'electric') return false;
+  return true;
+}
+// Give a status (with sleep turns rolled by the caller), plus Synchronize.
+function giveStatus(b, u, st, src, sleepTurns) {
+  u.status = st; if (st === 'tox') u.tox = 1; if (st === 'slp') u.slp = sleepTurns || 1;
+  blog(b, `${u.name} is now ${STATUS_NAME[st].toLowerCase()}${st === 'slp' ? ` (${u.slp} turn${u.slp > 1 ? 's' : ''})` : ''}.`);
+  if (src && src.id !== u.id && abil(b, u) === 'Synchronize' && ['brn', 'par', 'psn', 'tox'].includes(st) && canGetStatus(src, st, null, b, u)) {
+    blog(b, `${u.name}'s Synchronize passes it back!`); giveStatus(b, src, st, null);
+  }
+}
+
+// The move as this Pokémon uses it right now: type and power after abilities, weather and terrain.
+function moveFor(b, u, move) {
+  const mv = { ...move, power: move.power || 0, ate: false };
+  const a = abil(b, u), w = weatherNow(b);
+  if (move.name === 'Weather Ball' && (w || sunFor(b, u))) { mv.type = sunFor(b, u) ? 'Fire' : ({ rain: 'Water', heavyrain: 'Water', sand: 'Rock', hail: 'Ice', snow: 'Ice' }[w] || 'Normal'); if (w !== 'wind') mv.power = 100; }
+  if (move.name === 'Terrain Pulse' && terrainNow(b) && grounded(b, u)) { mv.type = { electric: 'Electric', grassy: 'Grass', misty: 'Fairy', psychic: 'Psychic' }[terrainNow(b)]; mv.power = 100; }
+  const ate = { Aerilate: 'Flying', Pixilate: 'Fairy', Refrigerate: 'Ice', Galvanize: 'Electric', Dragonize: 'Dragon' }[a];
+  if (move.category !== 'Status') {
+    if (ate && mv.type === 'Normal') { mv.type = ate; mv.ate = true; }
+    if (a === 'Normalize') { mv.type = 'Normal'; mv.ate = true; }
+  }
+  if (a === 'Liquid Voice' && move.tags?.includes('Sound')) mv.type = 'Water';
+  return mv;
+}
+const makesContact = (b, u, mv) => mv.tags?.includes('Contact') && abil(b, u) !== 'Long Reach';
+const hasSecondary = mv => { const fx = mv.fx; return !!fx && ((fx.chance != null && fx.chance < 100 && mv.category !== 'Status') || (fx.userChance != null && fx.userChance < 100) || fx.auto === 'partial'); };
+
+// Abilities that stop a move outright (and what they do instead). Returns a message, or null.
+function abilityBlocks(b, att, def, mv) {
+  if (att.id === def.id) return null;
+  const da = defAb(b, att, def), t = mv.type;
+  const boost = (k, n) => `${def.name}'s ${da}: ${applyStages(def, { [k]: n }, b, def)}`;
+  const absorb = f => `${def.name}'s ${da} restores ${heal(def, def.maxHp * f)} HP`;
+  if (t === 'Ground' && mv.category !== 'Status' && ['Levitate', 'Eelevate'].includes(da)) return `${def.name} floats with ${da} — no effect`;
+  if (t === 'Fire' && da === 'Flash Fire') { ab(def).flashFire = true; return `${def.name}'s Flash Fire powers up its Fire moves`; }
+  if (t === 'Electric' && da === 'Volt Absorb') return absorb(.25);
+  if (t === 'Water' && ['Water Absorb', 'Dry Skin'].includes(da)) return absorb(.25);
+  if (t === 'Ground' && da === 'Earth Eater') return absorb(.25);
+  if (t === 'Electric' && da === 'Lightning Rod') return boost('spa', 1);
+  if (t === 'Water' && da === 'Storm Drain') return boost('spa', 1);
+  if (t === 'Electric' && da === 'Motor Drive') return boost('spe', 1);
+  if (t === 'Grass' && da === 'Sap Sipper') return boost('atk', 1);
+  if (t === 'Fire' && da === 'Well-Baked Body') return boost('def', 2);
+  if (mv.tags?.includes('Wind') && da === 'Wind Rider') return boost('atk', 1);
+  if (mv.tags?.includes('Sound') && da === 'Soundproof') return `${def.name}'s Soundproof blocks it`;
+  if (mv.tags?.includes('Ball/Bomb') && da === 'Bulletproof') return `${def.name}'s Bulletproof blocks it`;
+  if (mv.tags?.includes('Powder') && (da === 'Overcoat' || def.types.includes('Grass'))) return `${def.name} isn't affected by powder`;
+  if (mv.category === 'Status' && da === 'Good as Gold') return `${def.name}'s Good as Gold blocks status moves`;
+  if (mv.category !== 'Status' && da === 'Wonder Guard' && effOf(t, def.types) <= 1) return `${def.name}'s Wonder Guard — only super-effective hits work`;
+  return null;
+}
+
+// Hit chance: D100 at or below this number hits (null = can't miss).
+function hitThreshold(move, att, def, b) {
+  if (b) {
+    if (['Thunder', 'Hurricane'].includes(move.name) && rainNow(b)) return null;
+    if (move.name === 'Blizzard' && snowOrHail(b)) return null;
+    if (abil(b, att) === 'No Guard' || defAb(b, att, def) === 'No Guard') return null;
+  }
+  if (move.alwaysHits || move.accuracy == null) return null;
+  let acc = move.accuracy;
+  const aa = b ? abil(b, att) : null, da = b ? defAb(b, att, def) : null, w = b ? weatherNow(b) : null;
+  if (b && ['Thunder', 'Hurricane'].includes(move.name) && sunFor(b, att)) acc = 50;
+  if (da === 'Wonder Skin' && move.category === 'Status') acc = Math.min(acc, 50);
+  let accSt = att.stages.acc || 0, evaSt = def.stages.eva || 0;
+  if (da === 'Unaware') accSt = 0;
+  if (aa === 'Unaware') evaSt = 0;
+  if (["Keen Eye", "Mind's Eye", 'Illuminate'].includes(aa) && evaSt > 0) evaSt = 0;
+  const s = Math.max(-6, Math.min(6, accSt - evaSt));
+  let thr = acc * (s >= 0 ? (3 + s) / 3 : 3 / (3 - s));
+  if (aa === 'Compound Eyes') thr *= 1.3;
+  if (b && [att, ...allies(b, att)].some(x => abil(b, x) === 'Victory Star')) thr *= 1.1;
+  if (aa === 'Hustle' && move.category === 'Physical') thr *= 0.8;
+  if (da === 'Sand Veil' && w === 'sand') thr *= 0.8;
+  if (da === 'Snow Cloak' && (w === 'snow' || w === 'hail')) thr *= 0.8;
+  return Math.floor(thr);
+}
+
+// The damage formula, step by step with the games' rounding. roll = D6+D12+D20 total.
+function calcDamage({ b, att, def, move, roll, crit, spread }) {
+  const mv = b ? moveFor(b, att, move) : { ...move };
+  const aa = b ? abil(b, att) : null, da = b ? defAb(b, att, def) : null, w = b ? weatherNow(b) : null, ter = b ? terrainNow(b) : null;
+  const phys = mv.category === 'Physical', ak = phys ? 'atk' : 'spa', dk = phys ? 'def' : 'spd';
+  const contact = b ? makesContact(b, att, mv) : false, lines = [];
+  // Power
+  let P = mv.power, pm = 1; const pn = [];
+  const pw = (m, why) => { pm *= m; pn.push(`${why} ×${+m.toFixed(2)}`); };
+  if (b) {
+    if (mv.ate) pw(1.2, aa);
+    if (aa === 'Technician' && mv.power <= 60) pw(1.5, aa);
+    if (aa === 'Iron Fist' && mv.tags?.includes('Punch')) pw(1.2, aa);
+    if (aa === 'Strong Jaw' && mv.tags?.includes('Bite')) pw(1.5, aa);
+    if (aa === 'Mega Launcher' && mv.tags?.includes('Pulse')) pw(1.5, aa);
+    if (aa === 'Sharpness' && mv.tags?.includes('Slicing')) pw(1.5, aa);
+    if (aa === 'Reckless' && (mv.fx?.recoil || mv.tags?.includes('Recoil'))) pw(1.2, aa);
+    if (aa === 'Tough Claws' && contact) pw(1.3, aa);
+    if (aa === 'Sheer Force' && hasSecondary(mv)) pw(1.3, aa);
+    if (aa === 'Punk Rock' && mv.tags?.includes('Sound')) pw(1.3, aa);
+    if (aa === 'Sand Force' && w === 'sand' && ['Rock', 'Ground', 'Steel'].includes(mv.type)) pw(1.3, aa);
+    if (ab(att).charged && mv.type === 'Electric') pw(2, 'Charged');
+    if (mv.type === 'Steel' && [att, ...allies(b, att)].some(x => abil(b, x) === 'Steely Spirit')) pw(1.5, 'Steely Spirit');
+    if (allies(b, att).some(x => abil(b, x) === 'Battery') && !phys) pw(1.3, 'Battery');
+    if (allies(b, att).some(x => abil(b, x) === 'Power Spot')) pw(1.3, 'Power Spot');
+    const aura = { Dark: 'Dark Aura', Fairy: 'Fairy Aura' }[mv.type];
+    if (aura && fieldUnits(b).some(x => abil(b, x) === aura)) pw(fieldUnits(b).some(x => abil(b, x) === 'Aura Break') ? .75 : 4 / 3, aura);
+    if (grounded(b, att) && ter === 'electric' && mv.type === 'Electric') pw(1.3, 'Electric Terrain');
+    if (grounded(b, att) && ter === 'grassy' && mv.type === 'Grass') pw(1.3, 'Grassy Terrain');
+    if (grounded(b, att) && ter === 'psychic' && mv.type === 'Psychic') pw(1.3, 'Psychic Terrain');
+    if (grounded(b, def) && ter === 'misty' && mv.type === 'Dragon') pw(.5, 'Misty Terrain');
+    if (grounded(b, def) && ter === 'grassy' && ['Earthquake', 'Bulldoze', 'Magnitude'].includes(mv.name)) pw(.5, 'Grassy Terrain');
+    if (mv.name === 'Rising Voltage' && ter === 'electric' && grounded(b, def)) pw(2, 'Electric Terrain');
+    if (mv.name === 'Expanding Force' && ter === 'psychic' && grounded(b, att)) pw(1.5, 'Psychic Terrain');
+    if (mv.name === 'Psyblade' && ter === 'electric') pw(1.5, 'Electric Terrain');
+    if (['Solar Beam', 'Solar Blade'].includes(mv.name) && ['rain', 'heavyrain', 'sand', 'hail', 'snow'].includes(w)) pw(.5, WEATHER_NAME[w]);
+    if (da === 'Dry Skin' && mv.type === 'Fire') pw(1.25, da);
+    if (da === 'Heatproof' && mv.type === 'Fire') pw(.5, da);
+  }
+  P = Math.max(1, pokeRound(P * pm));
+  // Attack and Defense
+  let as = att.stages[ak] || 0, ds = def.stages[dk] || 0;
+  if (da === 'Unaware') as = 0; if (aa === 'Unaware') ds = 0;
+  if (crit && as < 0) as = 0; if (crit && ds > 0) ds = 0;
+  let A = Math.floor(att.stats[ak] * stageMult(as)), D = Math.floor(def.stats[dk] * stageMult(ds)), am = 1, dm = 1; const an = [];
+  const at = (m, why) => { am *= m; an.push(`${why} ×${+m.toFixed(2)}`); }, df = (m, why) => { dm *= m; an.push(`${why} (defense) ×${+m.toFixed(2)}`); };
+  if (b) {
+    const pinch = { Blaze: 'Fire', Torrent: 'Water', Overgrow: 'Grass', Swarm: 'Bug' }[aa];
+    if (pinch === mv.type && att.hp <= att.maxHp / 3) at(1.5, aa);
+    if (['Huge Power', 'Pure Power'].includes(aa) && phys) at(2, aa);
+    if (aa === 'Hustle' && phys) at(1.5, aa);
+    if (aa === 'Guts' && att.status && phys) at(1.5, aa);
+    if (aa === 'Gorilla Tactics' && phys) at(1.5, aa);
+    if (aa === 'Toxic Boost' && ['psn', 'tox'].includes(att.status) && phys) at(1.5, aa);
+    if (aa === 'Flare Boost' && att.status === 'brn' && !phys) at(1.5, aa);
+    if (aa === 'Solar Power' && sunFor(b, att) && !phys) at(1.5, aa);
+    if (aa === 'Defeatist' && att.hp <= att.maxHp / 2) at(.5, aa);
+    if (aa === 'Slow Start' && phys && (ab(att).slowStart || 0) < 5) at(.5, aa);
+    if (aa === 'Orichalcum Pulse' && sunFor(b, att) && phys) at(5461 / 4096, aa);
+    if (aa === 'Hadron Engine' && ter === 'electric' && !phys) at(5461 / 4096, aa);
+    if (boosterStat(b, att) === ak) at(1.3, aa);
+    if (['Plus', 'Minus'].includes(aa) && !phys && allies(b, att).some(x => ['Plus', 'Minus'].includes(abil(b, x)))) at(1.5, aa);
+    if (phys && sunFor(b, att) && [att, ...allies(b, att)].some(x => abil(b, x) === 'Flower Gift')) at(1.5, 'Flower Gift');
+    if (ab(att).flashFire && mv.type === 'Fire') at(1.5, 'Flash Fire');
+    if (aa === 'Transistor' && mv.type === 'Electric') at(1.3, aa);
+    if (aa === "Dragon’s Maw" && mv.type === 'Dragon') at(1.5, aa);
+    if (aa === 'Rocky Payload' && mv.type === 'Rock') at(1.5, aa);
+    if (aa === 'Fire Mane' && mv.type === 'Fire') at(1.5, aa);
+    if (aa === 'Steelworker' && mv.type === 'Steel') at(1.5, aa);
+    if (aa === 'Water Bubble' && mv.type === 'Water') at(2, aa);
+    if (aa === 'Supreme Overlord') { const n = Math.min(5, Object.values(b.units).filter(x => x.side === att.side && x.owner === att.owner && x.fainted).length); if (n) at(1 + .1 * n, aa); }
+    const ruin = { atk: 'Tablets of Ruin', spa: 'Vessel of Ruin', def: 'Sword of Ruin', spd: 'Beads of Ruin' };
+    if (fieldUnits(b).some(x => x.id !== att.id && abil(b, x) === ruin[ak])) at(.75, ruin[ak]);
+    if (fieldUnits(b).some(x => x.id !== def.id && abil(b, x) === ruin[dk])) df(.75, ruin[dk]);
+    if (['Thick Fat'].includes(da) && ['Fire', 'Ice'].includes(mv.type)) at(.5, `${def.name}'s ${da}`);
+    if (da === 'Water Bubble' && mv.type === 'Fire') at(.5, `${def.name}'s ${da}`);
+    if (da === 'Purifying Salt' && mv.type === 'Ghost') at(.5, `${def.name}'s ${da}`);
+    if (da === 'Marvel Scale' && def.status && phys) df(1.5, da);
+    if (da === 'Fur Coat' && phys) df(2, da);
+    if (da === 'Grass Pelt' && ter === 'grassy' && phys) df(1.5, da);
+    if (boosterStat(b, def) === dk && da) df(1.3, da);
+    if (!phys && sunFor(b) && [def, ...allies(b, def)].some(x => abil(b, x) === 'Flower Gift')) df(1.5, 'Flower Gift');
+    if (w === 'sand' && def.types.includes('Rock') && !phys) df(1.5, 'Sandstorm');
+    if (w === 'snow' && def.types.includes('Ice') && phys) df(1.5, 'Snow');
+  }
+  A = Math.max(1, pokeRound(A * am)); D = Math.max(1, pokeRound(D * dm));
+  const L = att.level;
+  let x = Math.floor(Math.floor(Math.floor(2 * L / 5 + 2) * P * A / D) / 50) + 2;
+  lines.push(`Base: Lv ${L}, power ${P}${pn.length ? ` (${pn.join(', ')})` : ''}, ${STAT_LABEL[ak]} ${A} vs ${STAT_LABEL[dk]} ${D}${an.length ? ` (${an.join(', ')})` : ''} → ${x}`);
+  if (spread) { x = pokeRound(x * 0.75); lines.push(`Several targets ×0.75 → ${x}`); }
+  if (b && (w || sunFor(b, att))) {   // weather
+    const sun = sunFor(b, att), rain = rainNow(b);
+    let m = 1;
+    if (mv.type === 'Fire') m = rain ? (w === 'heavyrain' ? 0 : .5) : sun ? 1.5 : 1;
+    if (mv.type === 'Water') m = rain ? 1.5 : sun ? (mv.name === 'Hydro Steam' ? 1.5 : w === 'harshsun' ? 0 : .5) : 1;
+    if (m !== 1) { x = m === 0 ? 0 : pokeRound(x * m); lines.push(`${sun && mv.type === 'Fire' || sun && mv.type === 'Water' ? (abil(b, att) === 'Mega Sol' && !['sun', 'harshsun'].includes(w) ? 'Mega Sol' : WEATHER_NAME[w] || 'Sun') : WEATHER_NAME[w]} ×${m} → ${x}`); }
+  }
+  if (crit) { const cm = aa === 'Sniper' ? 2.25 : 1.5; x = Math.floor(x * cm); lines.push(`Critical hit ×${cm} → ${x}`); }
+  x = Math.floor(x * (217 + roll) / 255); lines.push(`Roll ${roll}: ×(217+${roll})/255 → ${x}`);
+  if (att.types.includes(mv.type) || ab(att).proteanType === mv.type) { const st = aa === 'Adaptability' ? 2 : 1.5; x = pokeRound(x * st); lines.push(`STAB ×${st} → ${x}`); }
+  let mults = typeMults(mv.type, def.types);
+  if (b && ['Scrappy', "Mind's Eye"].includes(aa) && ['Normal', 'Fighting'].includes(mv.type)) mults = mults.map((m, i) => def.types[i] === 'Ghost' ? 1 : m);
+  if (b && w === 'wind') mults = mults.map((m, i) => def.types[i] === 'Flying' && m > 1 ? 1 : m);
+  let eff = mults.reduce((a, c) => a * c, 1);
+  if (b && da === 'Tera Shell' && def.hp === def.maxHp && eff > 0) { mults = [eff >= 1 ? .5 : eff]; eff = mults[0]; lines.push('Tera Shell: not very effective'); }
+  for (const m of mults) if (m !== 1) x = Math.floor(x * m);
+  if (eff !== 1) lines.push(`Type ×${eff} → ${x}`);
+  if (phys && att.status === 'brn' && aa !== 'Guts') { x = pokeRound(x * 0.5); lines.push(`Burned ×0.5 → ${x}`); }
+  if (b) {   // other final modifiers
+    const fm = (m, why) => { x = pokeRound(x * m); lines.push(`${why} ×${m} → ${x}`); };
+    if (['Multiscale', 'Shadow Shield'].includes(da) && def.hp === def.maxHp) fm(.5, da);
+    if (['Filter', 'Solid Rock', 'Prism Armor'].includes(da) && eff > 1) fm(.75, da);
+    if (aa === 'Tinted Lens' && eff > 0 && eff < 1) fm(2, aa);
+    if (aa === 'Neuroforce' && eff > 1) fm(1.25, aa);
+    if (da === 'Ice Scales' && !phys) fm(.5, da);
+    if (da === 'Fluffy' && contact) fm(.5, da);
+    if (da === 'Fluffy' && mv.type === 'Fire') fm(2, da);
+    if (da === 'Aura Guard' && contact) fm(.5, da);
+    if (da === 'Punk Rock' && mv.tags?.includes('Sound')) fm(.5, da);
+    if (allies(b, def).some(x2 => abil(b, x2) === 'Friend Guard')) fm(.75, 'Friend Guard');
+  }
+  if (eff === 0) x = 0; else x = Math.max(1, x);
+  return { damage: x, eff, lines, type: mv.type };
+}
+
+// ---- When abilities trigger outside the damage formula ----
+// A Pokémon arrives on the field (battle start, send-out, switch-in).
+function enterField(b, u) {
+  if (!onField(b, u) || ab(u).entered) return;
+  ab(u).entered = true;
+  const a = abil(b, u), say = m => blog(b, `${u.name}'s ${a}: ${m}`);
+  mimicry(b, u);
+  if (a === 'Intimidate') for (const f of foes(b, u)) {
+    const fa = defAb(b, u, f);
+    if (['Oblivious', 'Own Tempo', 'Inner Focus', 'Scrappy'].includes(fa)) { blog(b, `${f.name}'s ${fa} ignores Intimidate.`); continue; }
+    if (fa === 'Guard Dog') { blog(b, `${f.name}'s Guard Dog: ${applyStages(f, { atk: 1 }, b, f)}`); continue; }
+    blog(b, `${u.name}'s Intimidate → ${f.name}: ${applyStages(f, { atk: -1 }, b, u)}`);
+    if (fa === 'Rattled') blog(b, `${f.name}'s Rattled: ${applyStages(f, { spe: 1 }, b, f)}`);
+  }
+  const wx = { Drizzle: 'rain', Drought: 'sun', 'Sand Stream': 'sand', 'Snow Warning': 'snow', 'Orichalcum Pulse': 'sun' }[a];
+  if (wx) setWeather(b, wx, u);
+  if (STRONG_WEATHER[a]) setWeather(b, STRONG_WEATHER[a], u, true);
+  const tx = { 'Electric Surge': 'electric', 'Grassy Surge': 'grassy', 'Misty Surge': 'misty', 'Psychic Surge': 'psychic', 'Hadron Engine': 'electric' }[a];
+  if (tx) setTerrain(b, tx, u);
+  if (a === 'Teraform Zero') { if (b.weather || b.terrain) { b.weather = null; b.terrain = null; say('weather and terrain cleared'); } }
+  if (a === 'Download') { const fs = foes(b, u); if (fs.length) { const d = fs.reduce((s, f) => s + stat(f, 'def'), 0), sd = fs.reduce((s, f) => s + stat(f, 'spd'), 0); say(applyStages(u, d < sd ? { atk: 1 } : { spa: 1 }, b, u)); } }
+  if (a === 'Intrepid Sword' && !ab(u).swordUsed) { ab(u).swordUsed = true; say(applyStages(u, { atk: 1 }, b, u)); }
+  if (a === 'Dauntless Shield' && !ab(u).shieldUsed) { ab(u).shieldUsed = true; say(applyStages(u, { def: 1 }, b, u)); }
+  if (a === 'Supersweet Syrup' && !ab(u).syrupUsed) { ab(u).syrupUsed = true; for (const f of foes(b, u)) blog(b, `Supersweet Syrup → ${f.name}: ${applyStages(f, { eva: -1 }, b, u)}`); }
+  if (a === 'Hospitality') for (const x of allies(b, u)) if (x.hp < x.maxHp) say(`${x.name} recovers ${heal(x, x.maxHp / 4)} HP`);
+  if (a === 'Costar') { const x = allies(b, u)[0]; if (x) { u.stages = { ...x.stages }; say(`copied ${x.name}'s stat changes`); } }
+  if (a === 'Curious Medicine') for (const x of allies(b, u)) x.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0]));
+  if (a === 'Trace') { const f = foes(b, u).find(f2 => !NO_COPY.has(abil(b, f2))); if (f) { ab(u).now = abil(b, f); say(`copied ${f.name}'s ${ab(u).now}`); ab(u).entered = false; enterField(b, u); } }
+  if (['Air Lock', 'Cloud Nine'].includes(a) && b.weather) say('the weather has no effect while it is out');
+  if (a === 'Neutralizing Gas') say('other abilities stop working while it is out');
+  if (['Pressure', 'Mold Breaker', 'Teravolt', 'Turboblaze', 'Unnerve', 'Frisk', 'Anticipation', 'Forewarn', 'Dark Aura', 'Fairy Aura', 'Aura Break', 'Comatose'].includes(a)) say('announced');
+  for (const x of fieldUnits(b)) if (x.id !== u.id && abil(b, x) === 'Opportunist') { /* only copies boosts */ }
+}
+const NO_COPY = new Set(['Trace', 'Imposter', 'Illusion', 'Multitype', 'RKS System', 'Stance Change', 'Schooling', 'Zen Mode', 'Shields Down', 'Battle Bond', 'Power Construct', 'Disguise', 'Ice Face', 'Gulp Missile', 'Hunger Switch', 'Commander', 'Zero to Hero', 'Neutralizing Gas', 'Power of Alchemy', 'Receiver', 'Flower Gift', 'Forecast', 'Comatose', 'Tera Shift', 'As One (Glastrier)', 'As One (Spectrier)']);
+// A Pokémon leaves the field by switching out.
+function leaveField(b, u) {
+  const a = abil(b, u);
+  if (a === 'Natural Cure' && u.status) { blog(b, `${u.name}'s Natural Cure healed its ${STATUS_NAME[u.status].toLowerCase()} status.`); u.status = null; }
+  if (a === 'Regenerator' && u.hp < u.maxHp && !u.fainted) blog(b, `${u.name}'s Regenerator restores ${heal(u, u.maxHp / 3)} HP.`);
+  u.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); if (u.status === 'tox') u.tox = 1;
+  const keep = { swordUsed: ab(u).swordUsed, shieldUsed: ab(u).shieldUsed, syrupUsed: ab(u).syrupUsed, disguiseBroken: ab(u).disguiseBroken, iceFaceBroken: ab(u).iceFaceBroken };
+  u.ab = keep; u.types = getPokemon(u.name)?.types || u.types;
+}
+// Trapping abilities stop a switch.
+function trappedBy(b, u) {
+  if (u.types.includes('Ghost')) return null;
+  for (const f of foes(b, u)) {
+    const a = abil(b, f);
+    if (a === 'Shadow Tag' && abil(b, u) !== 'Shadow Tag') return `${f.name}'s Shadow Tag`;
+    if (a === 'Arena Trap' && grounded(b, u)) return `${f.name}'s Arena Trap`;
+    if (a === 'Magnet Pull' && u.types.includes('Steel')) return `${f.name}'s Magnet Pull`;
+  }
+  return null;
+}
+
+// Reactions after a damaging hit lands. roll(title, dice) asks for a die roll when chance is involved.
+async function afterHit(b, att, def, mv, dealt, crit, hpBefore, roll) {
+  const aa = abil(b, att), da = defAb(b, att, def), contact = makesContact(b, att, mv);
+  const chance = async (pct, what) => { const r = await roll(`${what}: happens on 1–${pct}`, [100]); return r.total <= pct; };
+  const tryStatus = async (tgt, st, src, pct, what) => { if (!canGetStatus(tgt, st, null, b, src)) return; if (pct >= 100 || await chance(pct, what)) giveStatus(b, tgt, st, src, st === 'slp' ? sleepTurnsFromD6((await roll(`${tgt.name} falls asleep: D6 for turns`, [6])).total) : 0); };
+  const halfCrossed = hpBefore > def.maxHp / 2 && def.hp <= def.maxHp / 2 && def.hp > 0;
+  if (dealt > 0 && !def.fainted) {
+    if (da === 'Stamina') blog(b, `${def.name}'s Stamina: ${applyStages(def, { def: 1 }, b, def)}`);
+    if (da === 'Weak Armor' && mv.category === 'Physical') blog(b, `${def.name}'s Weak Armor: ${applyStages(def, { def: -1, spe: 2 }, b, def)}`);
+    if (da === 'Justified' && mv.type === 'Dark') blog(b, `${def.name}'s Justified: ${applyStages(def, { atk: 1 }, b, def)}`);
+    if (da === 'Rattled' && ['Bug', 'Ghost', 'Dark'].includes(mv.type)) blog(b, `${def.name}'s Rattled: ${applyStages(def, { spe: 1 }, b, def)}`);
+    if (da === 'Water Compaction' && mv.type === 'Water') blog(b, `${def.name}'s Water Compaction: ${applyStages(def, { def: 2 }, b, def)}`);
+    if (da === 'Steam Engine' && ['Fire', 'Water'].includes(mv.type)) blog(b, `${def.name}'s Steam Engine: ${applyStages(def, { spe: 6 }, b, def)}`);
+    if (da === 'Thermal Exchange' && mv.type === 'Fire') blog(b, `${def.name}'s Thermal Exchange: ${applyStages(def, { atk: 1 }, b, def)}`);
+    if (da === 'Anger Point' && crit) { def.stages.atk = 6; blog(b, `${def.name}'s Anger Point maxed its ATK!`); }
+    if (da === 'Anger Shell' && halfCrossed) blog(b, `${def.name}'s Anger Shell: ${applyStages(def, { atk: 1, spa: 1, spe: 1, def: -1, spd: -1 }, b, def)}`);
+    if (da === 'Berserk' && halfCrossed) blog(b, `${def.name}'s Berserk: ${applyStages(def, { spa: 1 }, b, def)}`);
+    if (da === 'Electromorphosis' || (da === 'Wind Power' && mv.tags?.includes('Wind'))) { ab(def).charged = true; blog(b, `${def.name} is charged — its next Electric move has double power.`); }
+    if (da === 'Cotton Down') for (const x of fieldUnits(b)) if (x.id !== def.id) blog(b, `Cotton Down → ${x.name}: ${applyStages(x, { spe: -1 }, b, def)}`);
+    if (da === 'Seed Sower') setTerrain(b, 'grassy', def);
+    if (da === 'Sand Spit') setWeather(b, 'sand', def);
+    if (da === 'Color Change' && !def.types.includes(mv.type)) { def.types = [mv.type]; blog(b, `${def.name}'s Color Change made it ${mv.type} type.`); }
+    if (['Emergency Exit', 'Wimp Out'].includes(da) && halfCrossed && Object.values(b.units).some(x => x.side === def.side && x.owner === def.owner && !x.out && !x.fainted)) {
+      blog(b, `${def.name}'s ${da}: it retreats!`); leaveField(b, def); def.out = false; def.pos = null; b.needs = [...(b.needs || []), { side: def.side, owner: def.owner }];
+    }
+  }
+  if (dealt > 0 && !att.fainted) {   // effects that hit back at the attacker
+    if (contact && !def.fainted || contact && ['Aftermath', 'Innards Out'].includes(da) || contact) {
+      if (contact && da === 'Static') await tryStatus(att, 'par', def, 30, `${def.name}'s Static`);
+      if (contact && da === 'Flame Body') await tryStatus(att, 'brn', def, 30, `${def.name}'s Flame Body`);
+      if (contact && da === 'Poison Point') await tryStatus(att, 'psn', def, 30, `${def.name}'s Poison Point`);
+      if (contact && da === 'Effect Spore' && !att.types.includes('Grass') && abil(b, att) !== 'Overcoat') {
+        const r = await roll(`${def.name}'s Effect Spore: 1–9 poison, 10–19 paralysis, 20–30 sleep`, [100]);
+        const st = r.total <= 9 ? 'psn' : r.total <= 19 ? 'par' : r.total <= 30 ? 'slp' : null;
+        if (st && canGetStatus(att, st, null, b, def)) giveStatus(b, att, st, def, st === 'slp' ? sleepTurnsFromD6((await roll(`${att.name} falls asleep: D6 for turns`, [6])).total) : 0);
+      }
+      if (contact && ['Rough Skin', 'Iron Barbs'].includes(da)) hurt(b, att, att.maxHp / 8, `${def.name}'s ${da}`);
+      if (contact && ['Gooey', 'Tangling Hair'].includes(da)) blog(b, `${def.name}'s ${da} → ${att.name}: ${applyStages(att, { spe: -1 }, b, def)}`);
+      if (contact && ['Mummy', 'Lingering Aroma'].includes(da) && !NO_COPY.has(abil(b, att))) { ab(att).now = da; blog(b, `${att.name}'s ability became ${da}.`); }
+      if (contact && da === 'Wandering Spirit' && !NO_COPY.has(abil(b, att))) { const mine = abil(b, att); ab(att).now = 'Wandering Spirit'; ab(def).now = mine; blog(b, `${att.name} and ${def.name} swapped abilities.`); }
+      if (contact && da === 'Aftermath' && def.fainted) hurt(b, att, att.maxHp / 4, `${def.name}'s Aftermath`);
+    }
+    if (da === 'Innards Out' && def.fainted) hurt(b, att, hpBefore, `${def.name}'s Innards Out`);
+    if (da === 'Spicy Spray' && !def.fainted) await tryStatus(att, 'brn', def, 100, `${def.name}'s Spicy Spray`);
+  }
+  if (dealt > 0 && !def.fainted) {   // the attacker's abilities that add effects
+    if (contact && aa === 'Poison Touch') await tryStatus(def, 'psn', att, 30, `${att.name}'s Poison Touch`);
+    if (aa === 'Toxic Chain') await tryStatus(def, 'tox', att, 30, `${att.name}'s Toxic Chain`);
+  }
+}
+// After a KO by an attack.
+function onKO(b, killer, victim) {
+  const a = killer ? abil(b, killer) : null;
+  if (killer && !killer.fainted) {
+    if (['Moxie', 'Chilling Neigh', 'As One (Glastrier)'].includes(a)) blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { atk: 1 }, b, killer)}`);
+    if (['Grim Neigh', 'As One (Spectrier)'].includes(a)) blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { spa: 1 }, b, killer)}`);
+    if (['Beast Boost', 'Eelevate'].includes(a)) { const k = highestStat(killer); blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { [k]: 1 }, b, killer)}`); }
+  }
+  for (const x of fieldUnits(b)) if (abil(b, x) === 'Soul-Heart') blog(b, `${x.name}'s Soul-Heart: ${applyStages(x, { spa: 1 }, b, x)}`);
+  for (const x of fieldUnits(b)) if (x.side === victim.side && ['Receiver', 'Power of Alchemy'].includes(abil(b, x)) && !NO_COPY.has(victim.ability)) { ab(x).now = victim.ability; blog(b, `${x.name}'s ${x.ability} took on ${victim.ability}.`); }
+}
+// End of a Pokémon's own turn: weather, terrain and ability effects (before burn/poison damage).
+function endOfTurnAbilities(b, u) {
+  const a = abil(b, u), w = weatherNow(b);
+  if (w === 'sand' && !['Rock', 'Ground', 'Steel'].some(t => u.types.includes(t)) && !['Sand Veil', 'Sand Rush', 'Sand Force', 'Overcoat'].includes(a)) hurt(b, u, u.maxHp / 16, 'sandstorm');
+  if (w === 'hail' && !u.types.includes('Ice') && !['Ice Body', 'Snow Cloak', 'Overcoat'].includes(a)) hurt(b, u, u.maxHp / 16, 'hail');
+  if (u.fainted) return;
+  const healMsg = (f, why) => { if (u.hp < u.maxHp) blog(b, `${u.name}'s ${why} restores ${heal(u, u.maxHp * f)} HP.`); };
+  if (a === 'Rain Dish' && rainNow(b)) healMsg(1 / 16, a);
+  if (a === 'Ice Body' && snowOrHail(b)) healMsg(1 / 16, a);
+  if (a === 'Dry Skin' && rainNow(b)) healMsg(1 / 8, a);
+  if (a === 'Dry Skin' && sunFor(b)) hurt(b, u, u.maxHp / 8, 'Dry Skin in the sun');
+  if (a === 'Solar Power' && sunFor(b, u)) hurt(b, u, u.maxHp / 8, 'Solar Power');
+  if (u.fainted) return;
+  if (a === 'Hydration' && rainNow(b) && u.status) { blog(b, `${u.name}'s Hydration cured its ${STATUS_NAME[u.status].toLowerCase()} status.`); u.status = null; }
+  if (terrainNow(b) === 'grassy' && grounded(b, u)) healMsg(1 / 16, 'Grassy Terrain');
+  if (a === 'Shed Skin' && u.status) { const r = 1 + randInt(100); if (r <= 30) { blog(b, `${u.name}'s Shed Skin cured its status (app roll ${r}).`); u.status = null; } }
+  if (a === 'Healer') for (const x of allies(b, u)) if (x.status) { const r = 1 + randInt(100); if (r <= 30) { blog(b, `${u.name}'s Healer cured ${x.name} (app roll ${r}).`); x.status = null; } }
+  if (a === 'Speed Boost') blog(b, `${u.name}'s Speed Boost: ${applyStages(u, { spe: 1 }, b, u)}`);
+  if (a === 'Moody') {
+    const ks = ['atk', 'def', 'spa', 'spd', 'spe'], up = ks.filter(k => u.stages[k] < 6), upK = up[randInt(up.length)], dn = ks.filter(k => k !== upK && u.stages[k] > -6), dnK = dn[randInt(dn.length)];
+    blog(b, `${u.name}'s Moody (app roll): ${applyStages(u, { ...(upK ? { [upK]: 2 } : {}), ...(dnK ? { [dnK]: -1 } : {}) }, b, u)}`);
+  }
+  if (a === 'Bad Dreams') for (const f of foes(b, u)) if (f.status === 'slp' || abil(b, f) === 'Comatose') hurt(b, f, f.maxHp / 8, `${u.name}'s Bad Dreams`);
+  if (a === 'Slow Start') { ab(u).slowStart = (ab(u).slowStart || 0) + 1; if (ab(u).slowStart === 5) blog(b, `${u.name} got its act together (Slow Start ended).`); }
+}
+
+// Which abilities the app runs. Everything else shows "Not automated" with the reason.
+const ABILITY_NOTES = {
+  // No effect in this game
+  'Run Away': 'none: there is no fleeing in this game', Pickup: 'none: no held items', 'Honey Gather': 'none: no held items', 'Ball Fetch': 'none: no held items',
+  Magician: 'none: no held items', Pickpocket: 'none: no held items', 'Sticky Hold': 'none: no held items', Klutz: 'none: no held items', Gluttony: 'none: no held items (Berries)',
+  Ripen: 'none: no held items (Berries)', Harvest: 'none: no held items (Berries)', 'Cheek Pouch': 'none: no held items (Berries)', 'Cud Chew': 'none: no held items (Berries)',
+  Unburden: 'none: no held items', Symbiosis: 'none: no held items', Unnerve: 'none: no held items (Berries)', Frisk: 'none: no held items', Multitype: 'none: plates are held items', 'RKS System': 'none: memories are held items',
+  Pressure: 'none: PP isn\'t tracked', Anticipation: 'none: information only', Forewarn: 'none: information only', 'Heavy Metal': 'none: no automated move uses weight', 'Light Metal': 'none: no automated move uses weight',
+  Rivalry: 'none: Pokémon have no gender here', Imposter: 'none: Ditto isn\'t in the game',
+  Prankster: 'none: the turn meter has no priority', 'Gale Wings': 'none: the turn meter has no priority', Triage: 'none: the turn meter has no priority', 'Quick Draw': 'none: the turn meter has no priority',
+  Stall: 'none: the turn meter has no move order', Analytic: 'none: the turn meter has no move order', 'Queenly Majesty': 'none: the turn meter has no priority', Dazzling: 'none: the turn meter has no priority', 'Armor Tail': 'none: the turn meter has no priority',
+  Telepathy: 'none: moves here never hit allies by accident', Damp: 'none: matters once self-destruct moves are automated', Stalwart: 'none: nothing redirects moves here', 'Propeller Tail': 'none: nothing redirects moves here',
+  // Needs something not built yet
+  'Cute Charm': 'no: infatuation isn\'t tracked', Oblivious: 'partly: blocks Intimidate; taunt/infatuation not tracked', 'Own Tempo': 'partly: blocks Intimidate; confusion not tracked', 'Inner Focus': 'partly: blocks Intimidate; flinch not tracked',
+  Steadfast: 'no: flinch isn\'t tracked', Stench: 'no: flinch isn\'t tracked', 'Tangled Feet': 'no: confusion isn\'t tracked', 'Aroma Veil': 'no: taunt/encore effects not tracked', 'Poison Puppeteer': 'no: confusion isn\'t tracked',
+  'Perish Body': 'no: perish count isn\'t tracked', 'Cursed Body': 'no: disabling moves isn\'t tracked', 'Toxic Debris': 'no: entry hazards aren\'t tracked', 'Screen Cleaner': 'no: Reflect/Light Screen aren\'t automated',
+  Infiltrator: 'no: screens and substitutes aren\'t automated', 'Suction Cups': 'no: forced switching isn\'t automated', 'Piercing Drill': 'no: Protect isn\'t automated', 'Unseen Fist': 'no: Protect isn\'t automated',
+  'Magic Bounce': 'partly: bounces automated status moves back', Dancer: 'no: copying dance moves isn\'t automated', Illusion: 'no: disguise as another Pokémon isn\'t automated', Commander: 'no: needs a Dondozo ally pairing',
+  'Mycelium Might': 'none: the turn meter has no move order', Stakeout: 'no: "switched in this turn" isn\'t tracked',
+  'Stance Change': 'no: battle forms aren\'t built yet', 'Zen Mode': 'no: battle forms aren\'t built yet', Schooling: 'no: battle forms aren\'t built yet', 'Shields Down': 'no: battle forms aren\'t built yet',
+  'Power Construct': 'no: battle forms aren\'t built yet', 'Battle Bond': 'no: battle forms aren\'t built yet', 'Gulp Missile': 'no: battle forms aren\'t built yet', 'Hunger Switch': 'no: battle forms aren\'t built yet',
+  Forecast: 'no: battle forms aren\'t built yet', 'Zero to Hero': 'no: battle forms aren\'t built yet', 'Tera Shift': 'no: battle forms aren\'t built yet', 'Flower Gift': 'partly: stat boosts in sun work; form change isn\'t built',
+  Disguise: 'partly: blocks the first hit; form change isn\'t built', 'Ice Face': 'partly: blocks the first physical hit; form change isn\'t built', Comatose: 'partly: status immunity works; "counts as asleep" for moves isn\'t automated'
+};
+const AUTOMATED_ABILITIES = new Set(('Adaptability|Aerilate|Aftermath|Air Lock|Anger Point|Anger Shell|Arena Trap|As One (Glastrier)|As One (Spectrier)|Aura Break|Aura Guard|Bad Dreams|Battery|Battle Armor|Beads of Ruin|Beast Boost|Berserk|Big Pecks|Blaze|Bulletproof|Chilling Neigh|Chlorophyll|Clear Body|Cloud Nine|Color Change|Competitive|Compound Eyes|Contrary|Corrosion|Costar|Cotton Down|Curious Medicine|Dark Aura|Dauntless Shield|Defeatist|Defiant|Delta Stream|Desolate Land|Download|Dragonize|Dragon’s Maw|Drizzle|Drought|Dry Skin|Early Bird|Earth Eater|Eelevate|Effect Spore|Electric Surge|Electromorphosis|Emergency Exit|Fairy Aura|Filter|Fire Mane|Flame Body|Flare Boost|Flash Fire|Flower Veil|Fluffy|Friend Guard|Full Metal Body|Fur Coat|Galvanize|Good as Gold|Gooey|Gorilla Tactics|Grass Pelt|Grassy Surge|Grim Neigh|Guard Dog|Guts|Hadron Engine|Healer|Heatproof|Hospitality|Huge Power|Hustle|Hydration|Hyper Cutter|Ice Body|Ice Scales|Illuminate|Immunity|Innards Out|Insomnia|Intimidate|Intrepid Sword|Iron Barbs|Iron Fist|Justified|Keen Eye|Leaf Guard|Levitate|Libero|Lightning Rod|Limber|Lingering Aroma|Liquid Ooze|Liquid Voice|Long Reach|Magic Guard|Magma Armor|Magnet Pull|Marvel Scale|Mega Launcher|Mega Sol|Merciless|Mimicry|Minus|Mirror Armor|Misty Surge|Mold Breaker|Moody|Motor Drive|Moxie|Multiscale|Mummy|Natural Cure|Neuroforce|Neutralizing Gas|No Guard|Normalize|Opportunist|Orichalcum Pulse|Overcoat|Overgrow|Parental Bond|Pastel Veil|Pixilate|Plus|Poison Heal|Poison Point|Poison Touch|Power Spot|Power of Alchemy|Primordial Sea|Prism Armor|Protean|Protosynthesis|Psychic Surge|Punk Rock|Pure Power|Purifying Salt|Quark Drive|Quick Feet|Rain Dish|Rattled|Receiver|Reckless|Refrigerate|Regenerator|Rock Head|Rocky Payload|Rough Skin|Sand Force|Sand Rush|Sand Spit|Sand Stream|Sand Veil|Sap Sipper|Scrappy|Seed Sower|Serene Grace|Shadow Shield|Shadow Tag|Sharpness|Shed Skin|Sheer Force|Shell Armor|Shield Dust|Simple|Skill Link|Slow Start|Slush Rush|Sniper|Snow Cloak|Snow Warning|Solar Power|Solid Rock|Soul-Heart|Soundproof|Speed Boost|Spicy Spray|Stamina|Static|Steam Engine|Steelworker|Steely Spirit|Storm Drain|Strong Jaw|Sturdy|Super Luck|Supersweet Syrup|Supreme Overlord|Surge Surfer|Swarm|Sweet Veil|Swift Swim|Sword of Ruin|Synchronize|Tablets of Ruin|Tangling Hair|Technician|Tera Shell|Teraform Zero|Teravolt|Thermal Exchange|Thick Fat|Tinted Lens|Torrent|Tough Claws|Toxic Boost|Toxic Chain|Trace|Transistor|Truant|Turboblaze|Unaware|Vessel of Ruin|Victory Star|Vital Spirit|Volt Absorb|Wandering Spirit|Water Absorb|Water Bubble|Water Compaction|Water Veil|Weak Armor|Well-Baked Body|White Smoke|Wimp Out|Wind Power|Wind Rider|Wonder Guard|Wonder Skin').split('|'));
+function abilityStatus(name) {
+  if (!name) return { auto: 'none', why: '' };
+  const note = ABILITY_NOTES[name];
+  if (note) { const [k, ...rest] = note.split(': '); return { auto: k, why: rest.join(': ') }; }
+  if (AUTOMATED_ABILITIES.has(name)) return { auto: 'yes', why: '' };
+  return { auto: 'no', why: 'custom rule' };
+}
+const abilityTag = name => { const s = abilityStatus(name); return s.auto === 'yes' ? '' : `<span class="pill warn" title="${esc(s.why)}">${s.auto === 'none' ? 'No effect here' : s.auto === 'partly' ? 'Partly automated' : 'Not automated'}${s.why ? ': ' + esc(s.why) : ''}</span>`; };
+
+// ---- Weather/terrain-aware moves the app runs in code ----
+const FIELD_MOVES = { 'Rain Dance': ['weather', 'rain'], 'Sunny Day': ['weather', 'sun'], Sandstorm: ['weather', 'sand'], Hail: ['weather', 'hail'], Snowscape: ['weather', 'snow'], 'Chilly Reception': ['weather', 'snow'],
+  'Electric Terrain': ['terrain', 'electric'], 'Grassy Terrain': ['terrain', 'grassy'], 'Misty Terrain': ['terrain', 'misty'], 'Psychic Terrain': ['terrain', 'psychic'] };
+const WEATHER_HEAL = { Moonlight: 'sun', Synthesis: 'sun', 'Morning Sun': 'sun', 'Shore Up': 'sand' };
+const CODED_MOVES = new Set([...Object.keys(FIELD_MOVES), ...Object.keys(WEATHER_HEAL), 'Weather Ball', 'Terrain Pulse', 'Thunder', 'Hurricane', 'Blizzard', 'Rising Voltage', 'Expanding Force', 'Psyblade', 'Hydro Steam', 'Grassy Glide', 'Steel Roller', 'Ice Spinner', 'Solar Beam', 'Solar Blade']);
+const moveAuto = mv => {   // the move's automation, including the weather/terrain moves handled in code
+  if (!mv) return { auto: 'no', why: '' };
+  if (mv.name === 'Chilly Reception') return { auto: 'partial', why: 'switching out isn\'t automated' };
+  if (['Solar Beam', 'Solar Blade'].includes(mv.name)) return { auto: 'partial', why: 'one turn in sun; the two-turn charge outside sun isn\'t automated' };
+  if (CODED_MOVES.has(mv.name)) return { auto: 'yes', why: '' };
+  return { auto: mv.fx?.auto || 'no', why: mv.fx?.why || '' };
+};
 
 // ---- Shared screen helpers for missions ----
 const WILD_SETUP = final => 'wildSetups/' + String(final).replace(/\//g, '_');   // saved ability + moves per wild Pokémon (any campaign)
@@ -1499,8 +2017,8 @@ function openModal(build) {   // build(card, close, redraw) fills in the modal's
 }
 const moveCardHTML = (name, extra = '') => {
   const d = getMove(name) || { name };
-  const fx = d.fx, tag = !fx || fx.auto === 'no' ? `<span class="pill warn" title="${esc(fx?.why || '')}">Not automated${fx?.why ? ': ' + esc(fx.why) : ''}</span>`
-    : fx.auto === 'partial' ? `<span class="pill warn">Partly automated: ${esc(fx.why || '')}</span>` : '';
+  const au = moveAuto(d), tag = au.auto === 'no' ? `<span class="pill warn" title="${esc(au.why)}">Not automated${au.why ? ': ' + esc(au.why) : ''}</span>`
+    : au.auto === 'partial' ? `<span class="pill warn">Partly automated: ${esc(au.why)}</span>` : '';
   return `<small><i class="tchip t-${d.type}">${d.type || '?'}</i> ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Never misses' : ''} · ${esc(d.target || '')}</small>
     <b>${esc(name)}</b><span class="muted">${esc(d.effect || '')}</span>${tag}${extra}`;
 };
@@ -1524,16 +2042,18 @@ function missionSetupDM(el, ctx) {
         <label class="row" style="cursor:pointer"> <input type="checkbox" data-bench="${benchKey(l.final)}" ${on ? 'checked' : ''}>${monImg(u.name, false, 'spr sm')}
           <div><b>${esc(u.name)}</b><div class="muted" style="font-size:.8rem">Lv ${N} · ${u.types.join(' / ')} · Final: ${esc(l.name)}</div></div></label>
         <div class="statline">${STAT_KEYS.map(k => `<span>${STAT_LABEL[k]} <b>${u.stats[k]}</b></span>`).join('')}</div>
-        <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option ${a === u.ability ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
+        <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option value="${esc(a)}" ${a === u.ability ? 'selected' : ''}>${esc(a)}${abilityStatus(a).auto === 'yes' ? '' : ' (not automated)'}</option>`).join('')}</select></label>
+        <div class="abil">${esc(getAbility(u.ability)?.effect || '')} ${abilityTag(u.ability)}</div>
         <div class="row" style="gap:6px">${u.moves.map(m => `<span class="pill">${esc(m)}</span>`).join('')}<button class="btn small ghost" data-moves="${l.final}">Edit moves</button></div>
         ${ws ? '' : '<div class="muted" style="font-size:.8rem">Using defaults (first ability, 4 newest moves).</div>'}
       </div>`; }).join('')}</div>
     <div><div class="muted" style="margin-bottom:6px">Pokémon each player sends out at once</div>
       <div class="seg">${[1, 2, 3].map(n => `<button aria-pressed="${n === perPlayer}" data-per="${n}">${n}</button>`).join('')}</div></div>
     <div class="stack" style="--gap:6px"><div style="font-weight:650">Players</div>${(c.players || []).map(p => {
-      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team);
+      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team, c), leads = leadsOf(setup, p.id, party), need = leadsNeeded(party, perPlayer);
       return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)}
-        <span class="muted">· party ${party.length}/6 · first out: ${leadsOf(setup, p.id, party, perPlayer).map(m => esc(m.species)).join(', ') || '—'}${setup.parties?.[p.id] ? '' : ' (default)'}</span></div>`; }).join('')}</div>
+        <span class="muted">· party ${party.length}/6 · first out: ${leads.map(m => esc(m.species)).join(', ') || '—'}</span>
+        ${team.length && leads.length !== need ? `<span class="pill warn">needs to star ${need}</span>` : ''}</div>`; }).join('')}</div>
     <div class="row"><div class="spacer"></div><button class="btn primary" id="startBattle">▶ Start battle</button></div>
   </div>`;
   el.querySelectorAll('[data-bench]').forEach(b => b.onchange = () => upd({ ['setup.bench.' + b.dataset.bench]: b.checked ? true : DB.DEL }));
@@ -1556,33 +2076,50 @@ function missionSetupDM(el, ctx) {
   document.getElementById('startBattle').onclick = () => {
     const chosen = lines.filter(l => bench[benchKey(l.final)]);
     if (!chosen.length) return toast('Tick at least one wild Pokémon');
-    const units = {}, names = {};
+    const units = {}, names = {}, lastParties = {}, missing = [];
     for (const p of c.players || []) {
       names[p.id] = p.name;
-      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team), leads = leadsOf(setup, p.id, party, perPlayer);
-      for (const m of party) { const u = unitFromMon(p.id, m); if (leads.includes(m)) u.out = true; units[u.id] = u; }
+      const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team, c), leads = leadsOf(setup, p.id, party);
+      if (team.length && leads.length !== leadsNeeded(party, perPlayer)) missing.push(`${p.name} (${leadsNeeded(party, perPlayer)})`);
+      lastParties[p.id] = party.map(m => m.uid);
+      for (const m of party) { const u = unitFromMon(p.id, m); if (leads.includes(m)) { u.out = true; u.revealed = true; } units[u.id] = u; }
     }
+    if (missing.length) return toast(`Still need to star who goes out first: ${missing.join(', ')}`);
     if (!Object.values(units).some(u => u.side === 'p')) return toast('No player has a ready Pokémon yet');
     for (const l of chosen) { const u = unitFromWild(l.final, N, wildSetups[String(l.final)]); units[u.id] = u; }
     const noMap = c.settings?.mapMode !== 'app';
     if (noMap) Object.values(units).forEach(u => { if (u.out) u.pos = 'table'; });
     const b = { units, init: shuffle(Object.keys(units)), names, taken: [...(c.takenFinals || [])], noMap, started: false, over: null, turn: null, needs: [], log: [`Mission ${N} battle set up.`], kos: [], catches: [] };
     upd({ phase: 'battle', battle: b });
+    DB.update(CAMP(cid), Object.fromEntries(Object.entries(lastParties).map(([pid, ids]) => ['lastParties.' + pid, ids]))).catch(saveErr);   // next mission starts from this party
   };
 }
-const partyOf = (setup, pid, team) => { const ids = setup.parties?.[pid]; return ids ? team.filter(m => ids.includes(m.uid)) : team.slice(0, 6); };
-const leadsOf = (setup, pid, party, per) => { const ids = setup.leads?.[pid]; const l = ids ? party.filter(m => ids.includes(m.uid)) : []; return l.length ? l.slice(0, per) : party.slice(0, per); };
+// Real stats at the Pokémon's current level (IVs, EVs and nature included), and their total.
+const monStats = m => m.ivs ? statsFor(m.species, m.ivs, m.evs || {}, m.level, m.nature) : null;
+const monTotal = m => { const st = monStats(m); return st ? STAT_KEYS.reduce((a, k) => a + st[k], 0) : 0; };
+const byTotal = team => [...team].sort((a, b2) => monTotal(b2) - monTotal(a));
+const statLine = m => { const st = monStats(m); return st ? `${STAT_KEYS.map(k => `${STAT_LABEL[k]} <b>${st[k]}</b>`).join(' · ')} · <b>Total ${monTotal(m)}</b>` : ''; };
+// Party: this mission's pick, else last mission's party, else the 6 highest totals.
+const partyOf = (setup, pid, team, c) => {
+  const sorted = byTotal(team), ids = setup.parties?.[pid] || c?.lastParties?.[pid];
+  const p = ids ? sorted.filter(m => ids.includes(m.uid)).slice(0, 6) : [];
+  return p.length ? p : sorted.slice(0, 6);
+};
+const leadsOf = (setup, pid, party) => { const ids = setup.leads?.[pid] || []; return party.filter(m => ids.includes(m.uid)); };   // only the starred ones
+const leadsNeeded = (party, per) => Math.min(per, party.length);
 
 // ---- Player: choose a party of 6 and who goes out first ----
 function missionSetupPlayer(el, ctx) {
   const { c, mis, cid, misNum, pid, team } = ctx;
   const setup = mis?.setup || {}, ready = team.filter(m => m.step === 'done');
   const per = setup.perPlayer || ((c.players || []).length === 1 ? 2 : 1);
-  const party = partyOf(setup, pid, ready), leads = leadsOf(setup, pid, party, per);
+  const party = partyOf(setup, pid, ready, c), leads = leadsOf(setup, pid, party), need = leadsNeeded(party, per);
+  const order = [...byTotal(party), ...byTotal(ready.filter(m => !party.includes(m)))];   // party on top, then everyone else by total
   el.innerHTML = `<div class="card stack"><h2 style="margin:0">Mission ${misNum}: your party</h2>
-    <div class="muted">Tap to bring up to 6 Pokémon. Star the ${per === 1 ? 'one' : per} that goes out first. The rest wait to switch in.</div>
-    ${ready.length ? `<div class="stack">${ready.map(m => { const inP = party.includes(m), lead = leads.includes(m);
-      return `<div class="partyrow ${inP ? 'on' : ''}"><button class="row grow" data-party="${m.uid}" style="all:unset;display:flex;gap:10px;align-items:center;flex:1;cursor:pointer">${monImg(m.species, m.shiny, 'spr sm')}<div><b>${esc(m.species)}</b><div class="muted" style="font-size:.85rem">Lv ${m.level} · ${(getPokemon(m.species)?.types || []).join(' / ')}</div></div></button>
+    <div class="muted">Tap to bring up to 6 Pokémon (sorted by total stats). Star the ${need === 1 ? 'one' : need} that go${need === 1 ? 'es' : ''} out first.</div>
+    ${ready.length && leads.length !== need ? `<div class="banner warn">Star ${need - leads.length > 0 ? need - leads.length + ' more' : 'fewer'} — the DM can't start until you've starred ${need}.</div>` : ''}
+    ${ready.length ? `<div class="stack">${order.map(m => { const inP = party.includes(m), lead = leads.includes(m);
+      return `<div class="partyrow ${inP ? 'on' : ''}"><button class="row grow" data-party="${m.uid}" style="all:unset;display:flex;gap:10px;align-items:center;flex:1;cursor:pointer">${monImg(m.species, m.shiny, 'spr sm')}<div><b>${esc(m.species)}</b> <span class="muted" style="font-size:.85rem">Lv ${m.level} · ${(getPokemon(m.species)?.types || []).join(' / ')}</span><div class="statline">${statLine(m)}</div></div></button>
         ${inP ? `<button class="icon-btn ${lead ? 'star' : ''}" data-lead="${m.uid}" title="Goes out first">${lead ? '★' : '☆'}</button>` : ''}</div>`; }).join('')}</div>`
       : '<div class="muted">Finish setting up your Pokémon first.</div>'}
     <div class="muted" style="font-size:.9rem">The DM starts the battle when everyone's ready.</div></div>`;
@@ -1594,7 +2131,7 @@ function missionSetupPlayer(el, ctx) {
   });
   el.querySelectorAll('[data-lead]').forEach(b => b.onclick = () => {
     let l = leads.map(m => m.uid); const id = b.dataset.lead;
-    if (l.includes(id)) l = l.filter(x => x !== id); else { l.push(id); if (l.length > per) l.shift(); }
+    if (l.includes(id)) l = l.filter(x => x !== id); else { if (l.length >= need) return toast(`Only ${need} can go out first — unstar one`); l.push(id); }
     save(party.map(m => m.uid), l);
   });
 }
@@ -1630,7 +2167,7 @@ function battleView(el, ctx) {
     tap = key => {
       const ok = u.side === 'w' ? openHexes(b, mis).includes(key) : lit.has(key);
       if (!ok) return toast('Not an allowed hex');
-      const nb = clone(b); nb.units[u.id].pos = key; blog(nb, `${u.name} was sent out.`); BUI.place = null; save(settle(nb));
+      const nb = clone(b); nb.units[u.id].pos = key; blog(nb, `${u.name} was sent out.`); if (nb.started) enterField(nb, nb.units[u.id]); BUI.place = null; save(settle(nb));
     };
   } else if (!b.noMap && myTurn && b.turn.step === 'move' && b.turn.roll) {
     lit = reachableInBattle(b, mis, turnU, b.turn.roll);
@@ -1665,14 +2202,14 @@ function battleView(el, ctx) {
   else if (!turnU) turnHTML = `<div class="muted">Waiting…</div>`;
   else if (!myTurn) turnHTML = `<div class="turnnow"><span class="sw" style="background:${ringOf(turnU)}"></span><b>${esc(turnU.name)}</b>&nbsp;is up (${esc(sideName(b, turnU))}).</div>`;
   else {
-    const t = b.turn, tier = speedTier(currentSpeed(turnU));
+    const t = b.turn, tier = speedTier(currentSpeed(turnU, b));
     let body = '';
     if (t.step === 'start') {
       body = turnU.status === 'frz' ? `<div>${esc(turnU.name)} is frozen. Roll a D100: 1–20 thaws it.</div><button class="btn primary" data-act="thaw">🎲 Roll D100</button>`
         : turnU.status === 'par' ? `<div>${esc(turnU.name)} is paralyzed. Roll a D100: 1–25 means it can't move this turn.</div><button class="btn primary" data-act="para">🎲 Roll D100</button>`
         : `<div>${esc(turnU.name)} is asleep (${turnU.slp} turn${turnU.slp === 1 ? '' : 's'} left).</div><button class="btn primary" data-act="sleep">Continue</button>`;
     } else if (t.step === 'move') {
-      body = !t.roll ? `<div>Speed ${currentSpeed(turnU)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
+      body = !t.roll ? `<div>Speed ${currentSpeed(turnU, b)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
         : b.noMap ? `<div>Rolled <b class="rollnum">${t.roll}</b>. Move up to ${t.roll} hexes on the table.</div><button class="btn primary" data-act="stay">Done moving</button>`
         : `<div>Rolled <b class="rollnum">${t.roll}</b>. Tap a lit hex.</div><button class="btn" data-act="stay">Stay here</button>`;
     } else if (t.step === 'act') {
@@ -1686,13 +2223,14 @@ function battleView(el, ctx) {
         BUI.targets = (BUI.targets || []).filter(id => cands.some(u => u.id === id));
         body = `<div class="opt wide on" style="cursor:default">${moveCardHTML(mv.name)}</div>
           ${selfMv ? `<div class="muted">Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.</div>` : `<div><b>Choose ${spreadMv ? 'targets' : 'a target'}</b> <span class="muted">(${esc(mv.target)} — the table judges range)</span></div>
-          <div class="targets">${cands.map(u => { const e = mv.category === 'Status' ? null : effOf(mv.type, u.types), on = BUI.targets.includes(u.id);
+          <div class="targets">${cands.map(u => { const e = mv.category === 'Status' ? null : effOf(moveFor(b, turnU, mv).type, u.types), on = BUI.targets.includes(u.id);
             return `<button class="target ${on ? 'on' : ''} side-${u.side}" data-tgt="${u.id}">${monImg(u.name, u.shiny, 'spr sm')}<div><b>${esc(u.name)}</b> <span class="muted">${esc(sideName(b, u))}</span>
-              <div class="types">${u.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div>${hpBar(u)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; }).join('')}</div>`}
+              <div class="types">${u.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${esc(abil(b, u) || '')}</div>${hpBar(u)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; }).join('')}</div>`}
           <div class="row"><button class="btn ghost" data-act="back">Back</button><div class="spacer"></div><button class="btn primary" data-act="use" ${selfMv || BUI.targets.length ? '' : 'disabled'}>Use ${esc(mv.name)}</button></div>`;
       } else {
-        body = `<div class="movegrid">${turnU.moves.map(m => `<button class="opt" data-move="${esc(m)}">${moveCardHTML(m)}</button>`).join('')}</div>
-          <div class="row"><button class="btn" data-act="switch">⇄ Switch</button><div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
+        const locked = abil(b, turnU) === 'Gorilla Tactics' && turnU.ab?.locked, trap = trappedBy(b, turnU);
+        body = `${locked ? `<div class="muted">Gorilla Tactics: locked into ${esc(locked)} until it switches out.</div>` : ''}<div class="movegrid">${turnU.moves.filter(m => !locked || m === locked).map(m => `<button class="opt" data-move="${esc(m)}">${moveCardHTML(m)}</button>`).join('')}</div>
+          <div class="row">${trap ? `<span class="muted">Can't switch: ${esc(trap)}</span>` : `<button class="btn" data-act="switch">⇄ Switch</button>`}<div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
       }
     }
     turnHTML = `<div class="turnpanel"><div class="row">${monImg(turnU.name, turnU.shiny, 'spr sm')}<div><b style="font-size:1.1rem">${esc(turnU.name)}'s turn</b> ${statusChip(turnU)}<div class="muted" style="font-size:.85rem">${esc(sideName(b, turnU))} · Lv ${turnU.level} · ${hpBar(turnU)}</div></div></div>${body}</div>`;
@@ -1701,9 +2239,13 @@ function battleView(el, ctx) {
   const order = upcoming(b, 7).map(id => b.units[id]).filter(Boolean);
   const unitRow = u => `<div class="unitrow ${u.fainted ? 'fainted' : ''} ${b.turn?.id === u.id ? 'now' : ''}" ${isDM ? `data-edit="${u.id}"` : ''}>
       <span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span>
-      <div style="flex:1;min-width:0"><div><b>${esc(u.name)}</b> <span class="muted" style="font-size:.85rem">Lv ${u.level}${u.side === 'p' ? ' · ' + esc(b.names?.[u.owner] || '') : ''}${!u.out && !u.fainted ? ' · bench' : ''}${u.kos ? ` · ${u.kos} KO` : ''}</span> ${statusChip(u)} ${stageChips(u)}</div>${hpBar(u)}</div></div>`;
+      <div style="flex:1;min-width:0"><div><b>${esc(u.name)}</b> <span class="muted" style="font-size:.85rem">Lv ${u.level}${u.side === 'p' ? ' · ' + esc(b.names?.[u.owner] || '') : ''}${!u.out && !u.fainted ? ' · bench' : ''}${u.kos ? ` · ${u.kos} KO` : ''}</span> ${statusChip(u)} ${stageChips(u)}</div>
+        <div class="abil">${esc(abil(b, u) || u.ability || '')}${(u.ab?.now && u.ab.now !== u.ability) ? ` <span class="muted">(was ${esc(u.ability)})</span>` : ''} ${abilityTag(abil(b, u) || u.ability)}</div>${hpBar(u)}</div></div>`;
+  const shownWild = units.filter(u => u.side === 'w' && (isDM || u.revealed || u.out));   // players only see wild Pokémon once they've been sent out
   const last = b.last;
+  const ft = fieldText(b);
   el.innerHTML = `<div class="stack">
+    ${ft ? `<div class="fieldbar">${ft}</div>` : ''}
     ${turnHTML}
     ${waits.length ? `<div class="card stack">${waits.join('')}</div>` : ''}
     ${bench.length && !b.over ? `<div class="row"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
@@ -1712,10 +2254,10 @@ function battleView(el, ctx) {
     ${last ? `<details class="card"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
     <div class="grid">
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Players</h2>${units.filter(u => u.side === 'p').map(unitRow).join('')}</div>
-      <div class="card stack" style="--gap:6px"><h2 style="margin:0">Wild</h2>${units.filter(u => u.side === 'w').map(unitRow).join('')}</div>
+      <div class="card stack" style="--gap:6px"><h2 style="margin:0">Wild</h2>${shownWild.map(unitRow).join('') || '<div class="muted">None revealed yet.</div>'}</div>
     </div>
     <div class="card"><h2>Battle log</h2><div class="log">${(b.log || []).slice(-14).reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div>
-      <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities aren't automated yet: apply their effects by hand (DM: tap a Pokémon to edit it).</div></div>
+      <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities and moves tagged "Not automated" are applied by hand (DM: tap a Pokémon to edit it).</div></div>
     ${isDM ? `<div class="row">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
       ${b.over ? `<button class="btn primary" data-act="finish">Finish mission ▶</button>` : `<button class="btn small ghost" data-act="endbattle">End battle</button>`}</div>` : ''}
   </div>`;
@@ -1730,14 +2272,14 @@ function battleView(el, ctx) {
   const $$ = (sel, f) => el.querySelectorAll(sel).forEach(x => x.onclick = () => f(x));
   $$('[data-place]', x => { BUI.place = BUI.place === x.dataset.place ? null : x.dataset.place; ctx.redraw(); });
   $$('[data-sendout]', x => {
-    const nb = clone(b), u = nb.units[x.dataset.sendout]; u.out = true; u.meter = 0;
-    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); } else BUI.place = u.id;
+    const nb = clone(b), u = nb.units[x.dataset.sendout]; u.out = true; u.meter = 0; u.revealed = true;
+    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); if (nb.started) enterField(nb, u); } else BUI.place = u.id;
     save(settle(nb));
   });
   $$('[data-unit]', x => {
-    const nb = clone(b), u = nb.units[x.dataset.unit]; u.out = true; u.meter = 0;
+    const nb = clone(b), u = nb.units[x.dataset.unit]; u.out = true; u.meter = 0; u.revealed = true;
     nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.need);
-    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); } else BUI.place = u.id;
+    if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); if (nb.started) enterField(nb, u); } else BUI.place = u.id;
     save(settle(nb));
   });
   $$('[data-hold]', x => { const nb = clone(b); nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.hold); save(settle(nb)); });
@@ -1750,9 +2292,12 @@ function battleView(el, ctx) {
   });
   $$('[data-switch]', x => {
     const nb = clone(b), out = nb.units[b.turn.id], inc = nb.units[x.dataset.switch];
-    inc.out = true; inc.pos = out.pos; inc.meter = 0;
-    out.out = false; out.pos = null; out.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); if (out.status === 'tox') out.tox = 1;
+    const trap = trappedBy(nb, out); if (trap) return toast(`${out.name} can't switch out (${trap})`);
+    leaveField(nb, out);
+    inc.out = true; inc.pos = out.pos; inc.meter = 0; inc.revealed = true;
+    out.out = false; out.pos = null;
     blog(nb, `${sideName(nb, out)} switched ${out.name} for ${inc.name}.`);
+    enterField(nb, inc);
     BUI = {}; save(finishTurnSafe(nb));
   });
   $$('[data-edit]', x => editUnitModal(ctx, x.dataset.edit));
@@ -1763,14 +2308,16 @@ function battleView(el, ctx) {
     if (a === 'startturns') {
       if (!units.some(u => u.side === 'w' && onField(b, u))) return toast('Send out at least one wild Pokémon');
       if (needsPlacement(b).length) return toast('Place every Pokémon first');
-      const nb = clone(b); nb.started = true; blog(nb, 'The battle begins!'); return save(settle(nb));
+      const nb = clone(b); nb.started = true; blog(nb, 'The battle begins!');
+      fieldUnits(nb).sort((p, q) => currentSpeed(q, nb) - currentSpeed(p, nb)).forEach(u => enterField(nb, u));   // entry abilities, fastest first
+      return save(settle(nb));
     }
     if (a === 'endbattle') { if (!confirm('End the battle now? KOs and catches so far still count.')) return; const nb = clone(b); nb.over = 'dm'; nb.turn = null; blog(nb, 'The DM ended the battle.'); return save(nb); }
     if (a === 'finish') return finishMission(ctx);
     if (a === 'skip') { const nb = clone(b); blog(nb, `${turnU.name} didn't use a move.`); BUI = {}; return save(finishTurnSafe(nb)); }
     if (a === 'stay') { const nb = clone(b); nb.turn.step = 'act'; return save(nb); }
     if (a === 'rollmove') {
-      const tier = speedTier(currentSpeed(turnU));
+      const tier = speedTier(currentSpeed(turnU, b));
       const r = await rollDice({ title: `${turnU.name}: move roll`, dice: [tier.die], mode: isDM && turnU.side === 'w' ? mode : mode });
       if (!r) return;
       const nb = clone(b); if (nb.turn?.id !== turnU.id || nb.turn.roll) return; nb.turn.roll = r.total; blog(nb, `${turnU.name} rolled ${r.total} to move.`); return save(nb);
@@ -1785,7 +2332,7 @@ function battleView(el, ctx) {
     }
     if (a === 'sleep') {
       const nb = clone(b), u = nb.units[turnU.id];
-      u.slp = Math.max(0, (u.slp || 1) - 1);
+      u.slp = Math.max(0, (u.slp || 1) - (abil(nb, u) === 'Early Bird' ? 2 : 1));
       if (u.slp === 0) { u.status = null; blog(nb, `${u.name} woke up! (its turn is still used)`); } else blog(nb, `${u.name} is fast asleep.`);
       return save(finishTurnSafe(nb));
     }
@@ -1808,77 +2355,134 @@ function reachableInBattle(b, mis, u, steps) {   // pass through other Pokémon,
 // Using a move: accuracy roll, damage roll, effects — then the turn passes on.
 async function useMove(ctx, actorId, moveName, targetIds) {
   const { c, mis, cid, misNum } = ctx, mode = c.settings?.dice || 'physical';
-  const b = clone(mis.battle), u = b.units[actorId], mv = getMove(moveName);
-  if (!u || !mv) return;
-  const fx = mv.fx, notAuto = !fx || fx.auto === 'no';
-  const dealsDamage = mv.category !== 'Status' && (mv.power || fx?.fixed);
-  if (notAuto && !dealsDamage) {
-    blog(b, `${u.name} used ${mv.name}! (Not automated${fx?.why ? ': ' + fx.why : ''} — resolve it by hand.)`);
-    b.last = { who: u.name, move: mv.name, lines: [] }; BUI = {};
+  const b = clone(mis.battle), u = b.units[actorId], base = getMove(moveName);
+  if (!u || !base) return;
+  const fx = base.fx, auto = moveAuto(base), notAuto = auto.auto === 'no';
+  const aa = abil(b, u);
+  const fieldMove = FIELD_MOVES[base.name];
+  const solarOk = ['Solar Beam', 'Solar Blade'].includes(base.name) ? sunFor(b, u) : true;
+  const dealsDamage = base.category !== 'Status' && (base.power || fx?.fixed) && solarOk;
+  if (!solarOk && !confirm(`${base.name} needs a charge turn outside harsh sunlight, which isn't automated.\n\nRoll accuracy and damage now anyway (as if fully charged)?`)) return;
+  if ((notAuto && !dealsDamage && !fieldMove) && !WEATHER_HEAL[base.name]) {
+    blog(b, `${u.name} used ${base.name}! (Not automated${auto.why ? ': ' + auto.why : ''} — resolve it by hand.)`);
+    b.last = { who: u.name, move: base.name, lines: [] }; BUI = {};
     return DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
   }
-  if (notAuto && !confirm(`${mv.name} isn't automated (${fx?.why || 'custom rule'}).\n\nRoll accuracy and damage with its listed power, then apply the rest by hand?`)) return;
+  if (notAuto && !confirm(`${base.name} isn't automated (${auto.why || 'custom rule'}).\n\nRoll accuracy and damage with its listed power, then apply the rest by hand?`)) return;
   const roll = async (title, dice) => { const r = await rollDice({ title, dice, mode }); if (!r) throw new Error('cancelled'); return r; };
   const lines = [];
   try {
-    blog(b, `${u.name} used ${mv.name}!`);
-    const selfMv = isSelfMove(mv);
-    const targets = selfMv ? [u] : targetIds.map(id => b.units[id]).filter(t => t && onField(b, t));
+    blog(b, `${u.name} used ${base.name}!`);
+    if (aa === 'Gorilla Tactics') ab(u).locked = base.name;
+    if (['Protean', 'Libero'].includes(aa) && !ab(u).protUsed) { const t = moveFor(b, u, base).type; if (u.types.join() !== t) { u.types = [t]; blog(b, `${u.name}'s ${aa} made it ${t} type.`); } ab(u).protUsed = true; }
+    // Weather and terrain setters
+    if (fieldMove) {
+      if (fieldMove[0] === 'weather') setWeather(b, fieldMove[1], u); else setTerrain(b, fieldMove[1], u);
+      if (base.name === 'Chilly Reception') blog(b, 'Switching out after Chilly Reception isn\'t automated — switch on your next turn if you like.');
+      b.last = { who: u.name, move: base.name, lines: [] }; BUI = {};
+      return DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
+    }
+    if (WEATHER_HEAL[base.name]) {
+      const w = weatherNow(b), good = WEATHER_HEAL[base.name] === 'sun' ? sunFor(b, u) : w === 'sand';
+      const f = good ? 2 / 3 : (w && w !== 'wind' && !(base.name === 'Shore Up')) ? 1 / 4 : 1 / 2;
+      blog(b, `${u.name} recovered ${heal(u, u.maxHp * f)} HP${good ? ' (boosted by the weather)' : f < .5 ? ' (weakened by the weather)' : ''}.`);
+      b.last = { who: u.name, move: base.name, lines: [] }; BUI = {};
+      return DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
+    }
+    if (base.name === 'Steel Roller' && !terrainNow(b)) {
+      blog(b, 'But it failed — there is no terrain.'); b.last = { who: u.name, move: base.name, lines: [] }; BUI = {};
+      return DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
+    }
+    const selfMv = isSelfMove(base);
+    let targets = selfMv ? [u] : targetIds.map(id => b.units[id]).filter(t => t && onField(b, t));
     const spread = !selfMv && targets.length > 1;
+    const sheer = aa === 'Sheer Force' && hasSecondary(base);
+    const chanceMult = aa === 'Serene Grace' ? 2 : 1;
     let anyHit = false, dealtTotal = 0;
-    for (const t of targets) {
+    for (let t of targets) {
+      const mvNow = moveFor(b, u, base);
       if (!selfMv) {
-        const thr = hitThreshold(mv, u, t);
+        // Magic Bounce sends automated status moves back at the user
+        if (base.category === 'Status' && defAb(b, u, t) === 'Magic Bounce') { blog(b, `${t.name}'s Magic Bounce sends ${base.name} back!`); t = u; }
+        const blockedMsg = t.id !== u.id ? abilityBlocks(b, u, t, mvNow) : null;
+        if (blockedMsg) { blog(b, blockedMsg + '.'); continue; }
+        if (base.category === 'Status' && base.name === 'Thunder Wave' && effOf('Electric', t.types) === 0) { blog(b, `It doesn't affect ${t.name}.`); continue; }
+        const thr = t.id === u.id ? null : hitThreshold(base, u, t, b);
         if (thr !== null && thr < 100) {
-          const r = await roll(`${mv.name} → ${t.name}: hits on 1–${thr}`, [100]);
-          if (r.total > thr) { blog(b, `${mv.name} missed ${t.name}. (rolled ${r.total}, needed ${thr} or less)`); continue; }
+          const r = await roll(`${base.name} → ${t.name}: hits on 1–${thr}`, [100]);
+          if (r.total > thr) { blog(b, `${base.name} missed ${t.name}. (rolled ${r.total}, needed ${thr} or less)`); continue; }
         }
       }
       anyHit = true;
       if (dealsDamage) {
-        let dmg = 0, eff = effOf(mv.type, t.types), crit = false;
-        if (fx?.fixed) { dmg = eff === 0 ? 0 : (fx.fixed === 'level' ? u.level : fx.fixed); lines.push(`${mv.name}: fixed damage ${dmg}`); }
+        let dmg = 0, eff = effOf(mvNow.type, t.types), crit = false;
+        const hpBefore = t.hp;
+        if (fx?.fixed) { dmg = eff === 0 ? 0 : (fx.fixed === 'level' ? u.level : fx.fixed); lines.push(`${base.name}: fixed damage ${dmg}`); }
         else {
-          const hits = parseHits(mv.hits); let n = 1;
-          if (Array.isArray(hits)) { const r = await roll(`${mv.name}: number of hits (D20: 1–7 = 2, 8–14 = 3, 15–17 = 4, 18–20 = 5)`, [20]); n = multiHitFromD20(r.total); }
-          else n = hits || 1;
-          const r = await roll(`${mv.name} → ${t.name}: damage roll`, [6, 12, 20]);
-          const cs = Math.min(3, (u.stages.crit || 0) + (fx?.crit === 'always' ? 3 : (fx?.crit || 0)));
-          crit = critFromD20(cs, r.values[2]);
-          const res = calcDamage({ att: u, def: t, move: mv, roll: r.total, crit, spread });
+          const hits = parseHits(base.hits); let n = 1;
+          if (Array.isArray(hits)) {
+            if (aa === 'Skill Link') { n = hits[1]; lines.push(`Skill Link: ${n} hits`); }
+            else { const r = await roll(`${base.name}: number of hits (D20: 1–7 = 2, 8–14 = 3, 15–17 = 4, 18–20 = 5)`, [20]); n = multiHitFromD20(r.total); }
+          } else n = hits || 1;
+          const r = await roll(`${base.name} → ${t.name}: damage roll`, [6, 12, 20]);
+          const da = defAb(b, u, t);
+          const cs = Math.min(3, (u.stages.crit || 0) + (fx?.crit === 'always' ? 3 : (fx?.crit || 0)) + (aa === 'Super Luck' ? 1 : 0));
+          crit = ['Battle Armor', 'Shell Armor'].includes(da) ? false : (aa === 'Merciless' && ['psn', 'tox'].includes(t.status)) || critFromD20(cs, r.values[2]);
+          const res = calcDamage({ b, att: u, def: t, move: base, roll: r.total, crit, spread });
           dmg = res.damage * n; eff = res.eff;
           lines.push(`→ ${t.name}:`, ...res.lines, ...(n > 1 ? [`${n} hits × ${res.damage} = ${dmg}`] : []));
-        }
-        const dealt = Math.min(t.hp, dmg); t.hp -= dealt; dealtTotal += dealt;
-        blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit!' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective!' : eff < 1 ? ' — not very effective' : ''}.`);
-        if (t.status === 'frz' && mv.type === 'Fire' && t.hp > 0) { t.status = null; blog(b, `${t.name} thawed out!`); }
-        if (t.hp === 0 && !t.fainted) faint(b, t, u);
-      }
-      if (!notAuto && !t.fainted && t.id !== u.id && (fx.status || fx.target)) {
-        let ok = true;
-        if (fx.chance && fx.chance < 100) { const r = await roll(`${mv.name}: effect chance on ${t.name} (1–${fx.chance})`, [100]); ok = r.total <= fx.chance; if (!ok) blog(b, `No added effect. (rolled ${r.total})`); }
-        if (ok && fx.status) {
-          if (!canGetStatus(t, fx.status, mv)) blog(b, `${t.name} wasn't affected by ${STATUS_NAME[fx.status].toLowerCase()}.`);
-          else {
-            t.status = fx.status;
-            if (fx.status === 'slp') { const r = await roll(`${t.name} falls asleep: D6 for turns (1–2 = 1, 3–4 = 2, 5–6 = 3)`, [6]); t.slp = sleepTurnsFromD6(r.total); }
-            if (fx.status === 'tox') t.tox = 1;
-            blog(b, `${t.name} is now ${STATUS_NAME[fx.status].toLowerCase()}${fx.status === 'slp' ? ` (${t.slp} turn${t.slp > 1 ? 's' : ''})` : ''}.`);
+          if (aa === 'Parental Bond' && n === 1 && res.damage > 0) {
+            const second = calcDamage({ b, att: u, def: t, move: { ...base, power: Math.max(1, Math.floor((base.power || 0) / 4)) }, roll: r.total, crit, spread });
+            dmg += second.damage; lines.push(`Parental Bond second hit (¼ power): +${second.damage}`);
           }
         }
-        if (ok && fx.target) blog(b, `${t.name}: ${applyStages(t, fx.target)}.`);
+        // Abilities that soften or stop the hit
+        const da = defAb(b, u, t);
+        if (dmg > 0 && da === 'Disguise' && !ab(t).disguiseBroken) { ab(t).disguiseBroken = true; dmg = 0; blog(b, `${t.name}'s Disguise took the hit!`); hurt(b, t, t.maxHp / 8, 'its disguise broke'); }
+        if (dmg > 0 && da === 'Ice Face' && base.category === 'Physical' && !ab(t).iceFaceBroken) { ab(t).iceFaceBroken = true; dmg = 0; blog(b, `${t.name}'s Ice Face took the hit!`); }
+        if (dmg >= t.hp && t.hp === t.maxHp && da === 'Sturdy') { dmg = t.hp - 1; blog(b, `${t.name} endured the hit with Sturdy!`); }
+        const dealt = Math.min(t.hp, dmg); t.hp -= dealt; dealtTotal += dealt;
+        blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit!' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective!' : eff < 1 ? ' — not very effective' : ''}.`);
+        if (ab(u).charged && mvNow.type === 'Electric') ab(u).charged = false;
+        if (t.status === 'frz' && mvNow.type === 'Fire' && t.hp > 0) { t.status = null; blog(b, `${t.name} thawed out!`); }
+        if (t.hp === 0 && !t.fainted) faint(b, t, u);
+        await afterHit(b, u, t, { ...base, type: mvNow.type }, dealt, crit, hpBefore, roll);
       }
+      // The move's added effects on the target
+      const shielded = defAb(b, u, t) === 'Shield Dust' && base.category !== 'Status';
+      if (!notAuto && !sheer && !t.fainted && t.id !== u.id && (fx?.status || fx?.target) && !(shielded && fx.chance < 100)) {
+        let ok = true;
+        const pct = fx.chance && fx.chance < 100 ? Math.min(100, fx.chance * chanceMult) : 100;
+        if (pct < 100) { const r = await roll(`${base.name}: effect chance on ${t.name} (1–${pct})`, [100]); ok = r.total <= pct; if (!ok) blog(b, `No added effect. (rolled ${r.total})`); }
+        if (ok && fx.status) {
+          if (!canGetStatus(t, fx.status, base, b, u)) blog(b, `${t.name} wasn't affected by ${STATUS_NAME[fx.status].toLowerCase()}.`);
+          else {
+            let turns = 0;
+            if (fx.status === 'slp') turns = sleepTurnsFromD6((await roll(`${t.name} falls asleep: D6 for turns (1–2 = 1, 3–4 = 2, 5–6 = 3)`, [6])).total);
+            giveStatus(b, t, fx.status, u, turns);
+          }
+        }
+        if (ok && fx.target) blog(b, `${t.name}: ${applyStages(t, fx.target, b, u)}.`);
+      }
+      // Status moves aimed back at the user by Magic Bounce
+      if (!notAuto && t.id === u.id && !selfMv && fx?.status && canGetStatus(u, fx.status, base, b, null)) giveStatus(b, u, fx.status, null, fx.status === 'slp' ? 1 : 0);
+      if (!notAuto && t.id === u.id && !selfMv && fx?.target) blog(b, `${u.name}: ${applyStages(u, fx.target, b, null)}.`);
     }
     if (!notAuto && anyHit && !u.fainted) {
-      if (fx.user) { let ok = true; if (fx.userChance && fx.userChance < 100) { const r = await roll(`${mv.name}: chance for ${u.name}'s stat change (1–${fx.userChance})`, [100]); ok = r.total <= fx.userChance; } if (ok) blog(b, `${u.name}: ${applyStages(u, fx.user)}.`); }
-      if (fx.drain && dealtTotal) { const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(dealtTotal * fx.drain / 100))); u.hp += h; blog(b, `${u.name} drained ${h} HP.`); }
-      if (fx.heal) { const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(u.maxHp * fx.heal / 100))); u.hp += h; blog(b, `${u.name} recovered ${h} HP.`); }
-      if (fx.recoil && dealtTotal) { const r = Math.min(u.hp, Math.max(1, Math.floor(dealtTotal * fx.recoil / 100))); u.hp -= r; blog(b, `${u.name} took ${r} recoil damage.`); if (u.hp === 0) faint(b, u, null); }
+      if (fx.user && !sheer) { let ok = true; const pct = fx.userChance && fx.userChance < 100 ? Math.min(100, fx.userChance * chanceMult) : 100; if (pct < 100) { const r = await roll(`${base.name}: chance for ${u.name}'s stat change (1–${pct})`, [100]); ok = r.total <= pct; } if (ok) blog(b, `${u.name}: ${applyStages(u, fx.user, b, u)}.`); }
+      if (fx.drain && dealtTotal) {
+        const amt = Math.max(1, Math.floor(dealtTotal * fx.drain / 100));
+        const ooze = targets.some(t => defAb(b, u, t) === 'Liquid Ooze');
+        if (ooze) hurt(b, u, amt, 'Liquid Ooze'); else blog(b, `${u.name} drained ${heal(u, amt)} HP.`);
+      }
+      if (fx.heal) blog(b, `${u.name} recovered ${heal(u, u.maxHp * fx.heal / 100)} HP.`);
+      if (fx.recoil && dealtTotal && !['Rock Head', 'Magic Guard'].includes(aa) && !u.fainted) hurt(b, u, dealtTotal * fx.recoil / 100, 'recoil', null);
     }
-    if (fx?.auto === 'partial') blog(b, `Not automated: ${fx.why} — apply by hand if it happens.`);
-    if (notAuto) blog(b, `Rest of ${mv.name} isn't automated (${fx?.why || 'custom rule'}) — apply by hand.`);
+    if (['Steel Roller', 'Ice Spinner'].includes(base.name) && anyHit) clearTerrain(b);
+    if (auto.auto === 'partial') blog(b, `Not automated: ${auto.why} — apply by hand if it happens.`);
+    if (notAuto) blog(b, `Rest of ${base.name} isn't automated (${auto.why || 'custom rule'}) — apply by hand.`);
   } catch (e) { if (e.message === 'cancelled') return toast('Move cancelled — nothing was saved'); throw e; }
-  b.last = { who: u.name, move: mv.name, lines };
+  b.last = { who: u.name, move: base.name, lines };
   BUI = {};
   await DB.update(MISSION(cid, misNum), { battle: finishTurnSafe(b) }).catch(saveErr);
 }
