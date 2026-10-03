@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Pokemon Table</title>
+<!--
+  index.html — the Pokemon Table game.
+  Sections (search for the ═══ banners):
+    1. LOOK & FEEL (styles)
+    2. PAGE SKELETON (the screens)
+    3. DATA (the converter's files in /data)
+    4. STORAGE (Firebase, plus a local test mode)
+    5. SCREENS (what each screen shows and does)
+    6. HEX GRID PREVIEW (map shapes)
+    7. START-UP
+-->
+<style>
+/* ═══ 1. LOOK & FEEL ═══════════════════════════════════════════════════
+   Colors are "tokens" so light and dark mode just swap the values.
+   Auto mode follows the device; Settings can force light or dark.     */
+:root {
+  --bg: #f3f5f9; --surface: #ffffff; --surface-2: #eef1f6; --ink: #151b26; --muted: #5f6b7e;
+  --line: #dde2ea; --accent: #e3350d; --accent-ink: #ffffff; --accent-soft: #fde8e2;
+  --ok: #1e8e4e; --ok-soft: #e3f4ea; --bad: #c62828; --bad-soft: #fde7e7; --warn-soft: #fff5dd;
+  --shadow: 0 1px 2px rgba(16,24,40,.05), 0 6px 20px rgba(16,24,40,.06);
+  --radius: 16px; --text: 17px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f131a; --surface: #171d27; --surface-2: #202835; --ink: #eef2f8; --muted: #9aa6b8;
+    --line: #2a3443; --accent: #ff5a36; --accent-soft: #3a1d17; --ok: #45c47c; --ok-soft: #15301f;
+    --bad: #ff6b6b; --bad-soft: #3a1b1b; --warn-soft: #34290f; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f131a; --surface: #171d27; --surface-2: #202835; --ink: #eef2f8; --muted: #9aa6b8;
+  --line: #2a3443; --accent: #ff5a36; --accent-soft: #3a1d17; --ok: #45c47c; --ok-soft: #15301f;
+  --bad: #ff6b6b; --bad-soft: #3a1b1b; --warn-soft: #34290f; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { font-size: var(--text); -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; line-height: 1.5; min-height: 100vh; }
+button, input, select { font: inherit; color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 64px; }
+.topbar { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.topbar .wrap { padding-top: 12px; padding-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 1.15rem; letter-spacing: -.01em; cursor: pointer; }
+.ball { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(var(--accent) 0 46%, var(--ink) 46% 54%, var(--surface) 54%); border: 2px solid var(--ink); position: relative; flex: none; }
+.ball::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--surface); border: 2px solid var(--ink); }
+.spacer { flex: 1; }
+h1 { font-size: 1.7rem; letter-spacing: -.02em; margin: 6px 0 4px; }
+h2 { font-size: 1.15rem; margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
+.stack > * + * { margin-top: 16px; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-weight: 650; cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.ghost { background: transparent; border-color: transparent; }
+.btn.small { min-height: 38px; padding: 0 14px; font-size: .9rem; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-btn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 1.15rem; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: var(--surface-2); font-size: .85rem; font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.wait { background: #e0a400; }
+label.field { display: block; }
+label.field > span { display: block; font-weight: 650; margin-bottom: 6px; }
+input[type=text], input[type=number], select { width: 100%; min-height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg button { min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 600; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.camp { cursor: pointer; transition: transform .08s, border-color .15s; }
+.camp:hover { border-color: var(--accent); transform: translateY(-1px); }
+.camp h3 { margin: 0 0 4px; font-size: 1.1rem; }
+.empty { text-align: center; padding: 40px 20px; color: var(--muted); }
+.who { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.who button { min-height: 96px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow); font-size: 1.15rem; font-weight: 700; cursor: pointer; }
+.who button:hover { border-color: var(--accent); }
+.who small { display: block; font-weight: 500; color: var(--muted); font-size: .85rem; }
+.banner { padding: 12px 16px; border-radius: 12px; }
+.banner.bad { background: var(--bad-soft); } .banner.ok { background: var(--ok-soft); } .banner.warn { background: var(--warn-soft); }
+.story { font-size: 1.12rem; line-height: 1.7; max-width: 70ch; }
+.story p { margin: 0 0 1em; }
+.story .part { font-size: .8rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 18px 0 6px; }
+.mission-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mission-num { font-size: 2.6rem; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+.hexprev { width: 100%; height: 220px; background: var(--surface-2); border-radius: 12px; }
+.hexprev polygon { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.modal { position: fixed; inset: 0; background: rgba(5,10,20,.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 20; }
+.modal.open { display: flex; }
+.modal .card { width: 100%; max-width: 460px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: 12px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; }
+.toast.show { opacity: 1; }
+.list-row { display: flex; gap: 8px; align-items: center; }
+.list-row input { flex: 1; }
+#status, .brand { white-space: nowrap; }
+#status { min-width: 0; overflow: hidden; }
+@media (max-width: 560px) { .wide-only { display: none; } .two { grid-template-columns: 1fr; } h1 { font-size: 1.45rem; } .mission-num { font-size: 2rem; } }
+</style>
+</head>
+<body>
+<!-- ═══ 2. PAGE SKELETON ═════════════════════════════════════════════ -->
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand" onclick="go('#/')"><div class="ball"></div>Pokemon Table</div>
+    <div class="spacer"></div>
+    <span class="pill" id="status"><span class="dot wait"></span>Starting…</span>
+    <button class="icon-btn" title="Settings" onclick="openSettings()">⚙︎</button>
+  </div>
+</header>
+<main class="wrap" id="app"></main>
+
+<div class="modal" id="settings" onclick="if(event.target===this)closeSettings()">
+  <div class="card stack">
+    <h2>Settings (this device)</h2>
+    <div><div class="muted" style="margin-bottom:6px">Appearance</div>
+      <div class="seg" id="themeSeg"></div></div>
+    <div><div class="muted" style="margin-bottom:6px">Text size</div>
+      <div class="seg" id="sizeSeg"></div></div>
+    <div class="row"><div class="spacer"></div><button class="btn primary" onclick="closeSettings()">Done</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<!-- ═══ 3. DATA — files made by converter.html, uploaded to /data ═══════ -->
+<script src="data/pokedex.js"></script>
+<script src="data/lines.js"></script>
+<script src="data/story.js"></script>
+<script src="data/starters.js"></script>
+<script src="data/looks.js"></script>
+<script src="data/moves.js"></script>
+<script src="data/abilities.js"></script>
+<script src="data/movepool.js"></script>
+
+<script type="module">
+// ═══ 4. STORAGE ════════════════════════════════════════════════════════
+// Everything shared (campaigns, players, later Pokémon and battles) lives in Firebase.
+// Add ?local to the address to use a pretend database stored only on this device —
+// handy for testing screens without touching the real data.
+const FIREBASE_VERSION = '12.19.0';
+const firebaseConfig = {
+  apiKey: "AIzaSyCMecvCgDoVCCXNzSterzXn4mPVc3UZKSg",
+  authDomain: "pokemon-table-jdh.firebaseapp.com",
+  projectId: "pokemon-table-jdh",
+  storageBucket: "pokemon-table-jdh.firebasestorage.app",
+  messagingSenderId: "345403073558",
+  appId: "1:345403073558:web:08205b32e6babb7f070137"
+};
+const LOCAL_MODE = new URLSearchParams(location.search).has('local');
+
+// Both storage types offer the same four actions, so the screens don't care which is in use.
+function makeLocalDB() {
+  const KEY = 'pt-local-campaigns';
+  const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+  const listeners = new Set();
+  const write = all => { localStorage.setItem(KEY, JSON.stringify(all)); listeners.forEach(f => f()); };
+  return {
+    kind: 'Test mode',
+    async check() { return true; },
+    watchCampaigns(cb) { const f = () => cb(Object.entries(read()).map(([id, c]) => ({ id, ...c }))); listeners.add(f); f(); return () => listeners.delete(f); },
+    async createCampaign(data) { const all = read(); const id = 'c' + Date.now().toString(36); all[id] = { ...data, createdAt: Date.now() }; write(all); return id; },
+    watchCampaign(id, cb) { const f = () => { const c = read()[id]; cb(c ? { id, ...c } : null); }; listeners.add(f); f(); return () => listeners.delete(f); },
+    async updateCampaign(id, patch) { const all = read(); all[id] = { ...all[id], ...patch }; write(all); }
+  };
+}
+async function makeFirebaseDB() {
+  const base = `https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/`;
+  const { initializeApp } = await import(base + 'firebase-app.js');
+  const fs = await import(base + 'firebase-firestore.js');
+  const db = fs.getFirestore(initializeApp(firebaseConfig));
+  const campaigns = fs.collection(db, 'campaigns');
+  return {
+    kind: 'Firebase',
+    async check() { await fs.getDocs(fs.query(campaigns, fs.limit(1))); return true; },
+    watchCampaigns(cb) { return fs.onSnapshot(campaigns, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() }))), e => setStatus('bad', 'Firebase error: ' + e.code)); },
+    async createCampaign(data) { const ref = await fs.addDoc(campaigns, { ...data, createdAt: fs.serverTimestamp() }); return ref.id; },
+    watchCampaign(id, cb) { return fs.onSnapshot(fs.doc(db, 'campaigns', id), d => cb(d.exists() ? { id: d.id, ...d.data() } : null), e => setStatus('bad', 'Firebase error: ' + e.code)); },
+    async updateCampaign(id, patch) { await fs.updateDoc(fs.doc(db, 'campaigns', id), patch); }
+  };
+}
+let DB = null;
+let unwatch = null;   // stops the previous screen's live updates when we move on
+
+// ═══ 5. SCREENS ════════════════════════════════════════════════════════
+const app = document.getElementById('app');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+window.go = hash => { location.hash = hash; };
+function setStatus(kind, text, extra = '') { document.getElementById('status').innerHTML = `<span class="dot ${kind}"></span>${esc(text)}<span class="wide-only">${esc(extra)}</span>`; }
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+const dataOK = () => typeof POKEDEX_DATA !== 'undefined' && typeof STORY_DATA !== 'undefined';
+const myIdKey = cid => 'pt-me-' + cid;  // which person this device is, per campaign
+
+const DICE = { physical: 'Physical dice', app: 'App dice' };
+const SHAPES = {
+  rectangle: { label: 'Rectangle', fields: [['w', 'Width', 12], ['h', 'Height', 9]] },
+  hexagon:   { label: 'Big hexagon', fields: [['r', 'Rings from center', 5]] },
+  diamond:   { label: 'Diamond', fields: [['w', 'Width', 9], ['h', 'Height', 9]] },
+  corridor:  { label: 'Long corridor', fields: [['w', 'Length', 20], ['h', 'Width', 3]] },
+  ring:      { label: 'Ring', fields: [['r', 'Outer rings', 6], ['hole', 'Hole size', 2]] },
+  cross:     { label: 'Cross', fields: [['arm', 'Arm length', 4], ['aw', 'Arm width', 3]] },
+  custom:    { label: 'Custom paint', fields: [['w', 'Start width', 12], ['h', 'Start height', 9]] }
+};
+const mapSummary = s => s?.mapMode === 'app'
+  ? `In-app map · ${SHAPES[s.grid?.shape]?.label || ''} (${s.grid?.hexes || 0} hexes)` : 'Physical table map';
+
+// ---- Home: campaign list ----
+function screenHome() {
+  app.innerHTML = `
+    <div class="row" style="margin-bottom:18px"><div><h1>Campaigns</h1><div class="muted">Pick a campaign, or start a new one.</div></div>
+      <div class="spacer"></div><button class="btn primary" onclick="go('#/new')">＋ New Game</button></div>
+    ${dataOK() ? '' : `<div class="banner bad" style="margin-bottom:16px"><b>Game data not found.</b> Upload the 8 files from converter.html into the repo's <b>data</b> folder.</div>`}
+    <div id="camps" class="grid"><div class="muted">Loading…</div></div>
+    <div class="row" style="margin-top:18px"><label class="row muted" style="cursor:pointer"><input type="checkbox" id="showArch"> Show archived</label></div>`;
+  let all = [];
+  const draw = () => {
+    const show = document.getElementById('showArch')?.checked;
+    const list = all.filter(c => show || !c.archived).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    document.getElementById('camps').innerHTML = list.length ? list.map(c => `
+      <div class="card camp" onclick="go('#/c/${c.id}')">
+        <h3>${esc(c.name)}${c.archived ? ' <span class="pill">Archived</span>' : ''}</h3>
+        <div class="muted">Mission ${c.mission ?? 0} · ${(c.players || []).length} player${(c.players || []).length === 1 ? '' : 's'} · DM ${esc(c.dm?.name)}</div>
+        <div class="muted" style="font-size:.9rem;margin-top:6px">${esc(mapSummary(c.settings))} · ${DICE[c.settings?.dice] || ''}</div>
+      </div>`).join('') : `<div class="card empty" style="grid-column:1/-1">No campaigns yet. Tap <b>New Game</b> to start one.</div>`;
+  };
+  document.getElementById('showArch').onchange = draw;
+  unwatch = DB.watchCampaigns(list => { all = list; draw(); });
+}
+
+// ---- New Game setup ----
+function screenNew() {
+  const st = { players: [''], mapMode: 'physical', shape: 'rectangle', params: {}, dice: 'physical' };
+  for (const [k, s] of Object.entries(SHAPES)) st.params[k] = Object.fromEntries(s.fields.map(f => [f[0], f[2]]));
+  app.innerHTML = `
+    <h1>New Game</h1><div class="muted" style="margin-bottom:18px">Set up a campaign. Everything here is saved with it.</div>
+    <div class="stack">
+      <div class="card stack">
+        <label class="field"><span>Campaign name</span><input type="text" id="name" placeholder="e.g. Mews Arena" maxlength="60"></label>
+        <label class="field"><span>Dungeon Master</span><input type="text" id="dm" placeholder="DM's name" maxlength="30"></label>
+        <div><div style="font-weight:650;margin-bottom:6px">Players</div><div id="players" class="stack" style="--gap:8px"></div>
+          <button class="btn small" style="margin-top:10px" id="addPlayer">＋ Add player</button></div>
+      </div>
+      <div class="card stack">
+        <h2>Map</h2>
+        <div class="seg" id="mapSeg"></div>
+        <div id="mapOpts"></div>
+      </div>
+      <div class="card stack">
+        <h2>Dice</h2>
+        <div class="muted">The default for each session. It can be changed at the start of any session.</div>
+        <div class="seg" id="diceSeg"></div>
+      </div>
+      <div class="row"><button class="btn ghost" onclick="go('#/')">Cancel</button><div class="spacer"></div>
+        <button class="btn primary" id="create">Create campaign</button></div>
+    </div>`;
+  const $ = id => document.getElementById(id);
+  const seg = (el, opts, cur, on) => { el.innerHTML = opts.map(([v, l]) => `<button aria-pressed="${v === cur}" data-v="${v}">${l}</button>`).join(''); el.querySelectorAll('button').forEach(b => b.onclick = () => on(b.dataset.v)); };
+  const drawPlayers = () => {
+    $('players').innerHTML = st.players.map((p, i) => `<div class="list-row"><input type="text" data-i="${i}" value="${esc(p)}" placeholder="Player ${i + 1} name" maxlength="30">
+      <button class="icon-btn" title="Remove" data-x="${i}">✕</button></div>`).join('');
+    $('players').querySelectorAll('input').forEach(inp => inp.oninput = () => { st.players[+inp.dataset.i] = inp.value; });
+    $('players').querySelectorAll('[data-x]').forEach(b => b.onclick = () => { st.players.splice(+b.dataset.x, 1); if (!st.players.length) st.players.push(''); drawPlayers(); });
+  };
+  $('addPlayer').onclick = () => { st.players.push(''); drawPlayers(); $('players').querySelector(`[data-i="${st.players.length - 1}"]`).focus(); };
+  const drawMap = () => {
+    seg($('mapSeg'), [['physical', 'Physical table map'], ['app', 'In-app hex map']], st.mapMode, v => { st.mapMode = v; drawMap(); });
+    if (st.mapMode !== 'app') { $('mapOpts').innerHTML = `<div class="muted">Positions stay on your table; the app tracks everything else.</div>`; return; }
+    const sh = SHAPES[st.shape], p = st.params[st.shape];
+    $('mapOpts').innerHTML = `
+      <div class="stack">
+        <div class="seg" id="shapeSeg"></div>
+        <div class="two">${sh.fields.map(([k, l]) => `<label class="field"><span>${l}</span><input type="number" min="1" max="40" data-k="${k}" value="${p[k]}"></label>`).join('')}</div>
+        <svg class="hexprev" id="prev"></svg>
+        <div class="muted" id="prevNote"></div>
+      </div>`;
+    seg($('shapeSeg'), Object.entries(SHAPES).map(([k, s]) => [k, s.label]), st.shape, v => { st.shape = v; drawMap(); });
+    $('mapOpts').querySelectorAll('[data-k]').forEach(inp => inp.oninput = () => { p[inp.dataset.k] = Math.max(1, Math.min(40, parseInt(inp.value) || 1)); drawPreview(); });
+    drawPreview();
+  };
+  const drawPreview = () => {
+    const cells = hexShape(st.shape, st.params[st.shape]);
+    renderHexes(document.getElementById('prev'), cells);
+    document.getElementById('prevNote').textContent = `${cells.length} hexes.` + (st.shape === 'custom' ? ' You will be able to paint hexes on or off when the map stage is built.' : '') +
+      ' Blocked hexes, start zones and terrain get placed when the map stage is built.';
+  };
+  const drawDice = () => seg($('diceSeg'), Object.entries(DICE), st.dice, v => { st.dice = v; drawDice(); });
+  drawPlayers(); drawMap(); drawDice();
+  $('create').onclick = async () => {
+    const name = $('name').value.trim(), dm = $('dm').value.trim();
+    const players = st.players.map(s => s.trim()).filter(Boolean);
+    if (!name) return toast('Give the campaign a name');
+    if (!dm) return toast("Enter the DM's name");
+    if (!players.length) return toast('Add at least one player');
+    if (new Set(players.map(p => p.toLowerCase())).size !== players.length) return toast('Two players have the same name');
+    const settings = { mapMode: st.mapMode, dice: st.dice };
+    if (st.mapMode === 'app') settings.grid = { shape: st.shape, ...st.params[st.shape], hexes: hexShape(st.shape, st.params[st.shape]).length };
+    $('create').disabled = true;
+    try {
+      const id = await DB.createCampaign({
+        name, dm: { id: 'dm', name: dm }, players: players.map((n, i) => ({ id: 'p' + (i + 1), name: n })),
+        settings, mission: 0, archived: false, takenFinals: []
+      });
+      toast('Campaign created');
+      go('#/c/' + id);
+    } catch (e) { toast('Could not save: ' + (e.code || e.message)); $('create').disabled = false; }
+  };
+}
+
+// ---- Who are you? ----
+function screenWho(cid, forcePick) {
+  const saved = localStorage.getItem(myIdKey(cid));
+  unwatch = DB.watchCampaign(cid, c => {
+    if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
+    if (saved && !forcePick && (saved === 'dm' || (c.players || []).some(p => p.id === saved))) {
+      unwatch?.(); unwatch = null; go(`#/c/${cid}/${saved === 'dm' ? 'dm' : 'p/' + saved}`); return;
+    }
+    app.innerHTML = `
+      <h1>${esc(c.name)}</h1><div class="muted" style="margin-bottom:18px">Who are you? This device will remember.</div>
+      <div class="who">
+        <button data-id="dm">${esc(c.dm?.name)}<small>Dungeon Master</small></button>
+        ${(c.players || []).map(p => `<button data-id="${p.id}">${esc(p.name)}<small>Player</small></button>`).join('')}
+      </div>`;
+    app.querySelectorAll('.who button').forEach(b => b.onclick = () => {
+      localStorage.setItem(myIdKey(cid), b.dataset.id);
+      go(`#/c/${cid}/${b.dataset.id === 'dm' ? 'dm' : 'p/' + b.dataset.id}`);
+    });
+  });
+}
+
+// ---- DM console (shared display) ----
+function storyHTML(mission) {
+  if (!dataOK()) return `<div class="muted">Game data not loaded.</div>`;
+  const parts = storyFor(mission);
+  if (!parts.length) return `<div class="muted">No story written for Mission ${mission} yet.</div>`;
+  return parts.map(s => `
+    ${s.part ? `<div class="part">Part ${esc(s.part)}</div>` : ''}
+    ${s.text ? s.text.split(/\n\n+/).map(p => `<p>${esc(p)}</p>`).join('') : ''}
+    ${s.link ? `<p><a class="btn small" href="${esc(s.link)}" target="_blank" rel="noopener">▶ Open link</a></p>` : ''}`).join('');
+}
+function screenDM(cid) {
+  unwatch = DB.watchCampaign(cid, c => {
+    if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
+    const m = c.mission ?? 0;
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)} · DM ${esc(c.dm?.name)}</div><div class="spacer"></div>
+        <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Switch person</button></div>
+      <div class="stack">
+        <div class="card">
+          <div class="mission-head">
+            <div><div class="muted" style="font-weight:600">Mission</div><div class="mission-num">${m}</div></div>
+            <div class="spacer"></div>
+            <button class="btn" id="prev" ${m <= 0 ? 'disabled' : ''}>◀ Previous</button>
+            <button class="btn primary" id="next" ${m >= 100 ? 'disabled' : ''}>Next mission ▶</button>
+          </div>
+        </div>
+        <div class="card"><h2>Story</h2><div class="story">${storyHTML(m)}</div></div>
+        <div class="grid">
+          <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div>${esc(p.name)} <span class="muted">· 0 Pokémon</span></div>`).join('')}</div>
+          <div class="card"><h2>Settings</h2><div>${esc(mapSummary(c.settings))}</div><div class="muted">${DICE[c.settings?.dice] || ''} by default</div></div>
+          <div class="card"><h2>Coming next</h2><div class="muted">Starter selection, team setup, then the battle tracker.</div></div>
+        </div>
+        <div class="row"><div class="spacer"></div>
+          <button class="btn small" id="arch">${c.archived ? 'Restore campaign' : 'Archive campaign'}</button></div>
+      </div>`;
+    const set = n => DB.updateCampaign(cid, { mission: n }).catch(e => toast('Could not save: ' + (e.code || e.message)));
+    document.getElementById('prev').onclick = () => set(m - 1);
+    document.getElementById('next').onclick = () => set(m + 1);
+    document.getElementById('arch').onclick = async () => {
+      if (!c.archived && !confirm(`Archive "${c.name}"? It will be hidden from the campaign list (you can restore it).`)) return;
+      await DB.updateCampaign(cid, { archived: !c.archived }); toast(c.archived ? 'Restored' : 'Archived');
+    };
+  });
+}
+
+// ---- Player home (phone) ----
+function screenPlayer(cid, pid) {
+  unwatch = DB.watchCampaign(cid, c => {
+    if (!c) { app.innerHTML = `<div class="card empty">Campaign not found. <a href="#/">Back</a></div>`; return; }
+    const me = (c.players || []).find(p => p.id === pid);
+    if (!me) { go(`#/c/${cid}/who`); return; }
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)}</div><div class="spacer"></div>
+        <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Not ${esc(me.name)}?</button></div>
+      <h1>Hi, ${esc(me.name)}</h1>
+      <div class="stack" style="margin-top:14px">
+        <div class="card row"><div><div class="muted" style="font-weight:600">Current mission</div><div class="mission-num">${c.mission ?? 0}</div></div></div>
+        <div class="card"><h2>Your team (0)</h2><div class="muted">Starter selection comes next — your two starters will appear here.</div></div>
+      </div>`;
+  });
+}
+
+// ---- Router: the part of the address after # decides the screen ----
+function route() {
+  unwatch?.(); unwatch = null;
+  window.scrollTo(0, 0);
+  const h = location.hash || '#/';
+  let m;
+  if (h === '#/' || h === '#') return screenHome();
+  if (h === '#/new') return screenNew();
+  if ((m = h.match(/^#\/c\/([^/]+)$/))) return screenWho(m[1], false);
+  if ((m = h.match(/^#\/c\/([^/]+)\/who$/))) { localStorage.removeItem(myIdKey(m[1])); return screenWho(m[1], true); }
+  if ((m = h.match(/^#\/c\/([^/]+)\/dm$/))) return screenDM(m[1]);
+  if ((m = h.match(/^#\/c\/([^/]+)\/p\/([^/]+)$/))) return screenPlayer(m[1], m[2]);
+  screenHome();
+}
+
+// ---- Settings (saved on this device only) ----
+const THEMES = [['auto', 'Match device'], ['light', 'Light'], ['dark', 'Dark']];
+const SIZES = [['15', 'Small'], ['17', 'Medium'], ['19', 'Large'], ['22', 'Extra large']];
+function applyPrefs() {
+  const t = localStorage.getItem('pt-theme') || 'auto', s = localStorage.getItem('pt-size') || '17';
+  if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+  document.documentElement.style.setProperty('--text', s + 'px');
+  const segs = [['themeSeg', THEMES, t, 'pt-theme'], ['sizeSeg', SIZES, s, 'pt-size']];
+  for (const [id, opts, cur, key] of segs) {
+    const el = document.getElementById(id);
+    el.innerHTML = opts.map(([v, l]) => `<button aria-pressed="${v === cur}" data-v="${v}">${l}</button>`).join('');
+    el.querySelectorAll('button').forEach(b => b.onclick = () => { localStorage.setItem(key, b.dataset.v); applyPrefs(); });
+  }
+}
+window.openSettings = () => document.getElementById('settings').classList.add('open');
+window.closeSettings = () => document.getElementById('settings').classList.remove('open');
+
+// ═══ 6. HEX GRID PREVIEW ═══════════════════════════════════════════════
+// Hexes use "axial" coordinates (q, r). Each shape returns the list of hexes it contains.
+const hexDist = (q, r) => Math.max(Math.abs(q), Math.abs(r), Math.abs(-q - r));
+const offsetToAxial = (col, row) => [col - (row - (row & 1)) / 2, row];
+function hexShape(shape, p) {
+  const out = [];
+  if (shape === 'rectangle' || shape === 'corridor' || shape === 'custom') {
+    for (let row = 0; row < p.h; row++) for (let col = 0; col < p.w; col++) out.push(offsetToAxial(col, row));
+  } else if (shape === 'hexagon' || shape === 'ring') {
+    const R = p.r, hole = shape === 'ring' ? Math.min(p.hole, R) : 0;
+    for (let q = -R; q <= R; q++) for (let r = -R; r <= R; r++) { const d = hexDist(q, r); if (d <= R && d >= hole) out.push([q, r]); }
+  } else if (shape === 'diamond') {
+    for (let r = 0; r < p.h; r++) for (let q = 0; q < p.w; q++) out.push([q, r]);
+  } else if (shape === 'cross') {
+    const n = 2 * p.arm + p.aw;
+    for (let row = 0; row < n; row++) for (let col = 0; col < n; col++)
+      if ((col >= p.arm && col < p.arm + p.aw) || (row >= p.arm && row < p.arm + p.aw)) out.push(offsetToAxial(col, row));
+  }
+  return out;
+}
+function renderHexes(svg, cells) {
+  const S = 10, w = Math.sqrt(3) * S;
+  const pts = cells.map(([q, r]) => [w * (q + r / 2), 1.5 * S * r]);
+  if (!pts.length) { svg.innerHTML = ''; return; }
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const minX = Math.min(...xs) - w, minY = Math.min(...ys) - S * 1.2, W = Math.max(...xs) - minX + w, H = Math.max(...ys) - minY + S * 1.2;
+  svg.setAttribute('viewBox', `${minX} ${minY} ${W} ${H}`);
+  const corner = i => { const a = Math.PI / 180 * (60 * i - 30); return [S * Math.cos(a), S * Math.sin(a)]; };
+  const shapePts = [0, 1, 2, 3, 4, 5].map(corner);
+  svg.innerHTML = pts.map(([x, y]) => `<polygon points="${shapePts.map(([a, b]) => (x + a).toFixed(1) + ',' + (y + b).toFixed(1)).join(' ')}"/>`).join('');
+}
+
+// ═══ 7. START-UP ═══════════════════════════════════════════════════════
+applyPrefs();
+window.addEventListener('hashchange', route);
+(async () => {
+  try {
+    DB = LOCAL_MODE ? makeLocalDB() : await makeFirebaseDB();
+    await DB.check();
+    const n = dataOK() ? POKEDEX_DATA.length.toLocaleString() + ' Pokémon' : 'no game data';
+    setStatus('ok', DB.kind, ` connected · ${n}`);
+  } catch (e) {
+    setStatus('bad', 'Not connected');
+    app.innerHTML = `<div class="banner bad"><b>Couldn't reach Firebase.</b><br>${esc(e.code || e.message)}<br><span class="muted">Check the internet connection. If it says "permission-denied", the database rules need updating.</span></div>`;
+    return;
+  }
+  route();
+})();
+</script>
+</body>
+</html>
