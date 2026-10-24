@@ -273,6 +273,19 @@ function nextEvolution(final, currentName) {
   }
   const M = table('Moves', ['APIID', 'ShowdownID', 'Move', 'Type', 'Category', 'Power', 'Accuracy', 'PP', 'Priority', 'Hits', 'Target', 'Effect']);
   const moveNames = new Set();
+  // Shape column: "Line N", "Range N", "Range N xK", "AOE N", "AOE N foes", "Self", "Field". Blank = Line 1 (the app's default).
+  function parseShape(raw, move) {
+    const t = clean(raw); if (!t) return null;
+    const s = String(t).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (s === 'self') return { kind: 'self', text: t };
+    if (s === 'field') return { kind: 'field', text: t };
+    let m;
+    if ((m = s.match(/^line (\d+)$/))) return { kind: 'line', n: +m[1], text: t };
+    if ((m = s.match(/^range (\d+)(?: ?x ?(\d+))?$/))) return { kind: 'range', n: +m[1], count: m[2] ? +m[2] : 1, text: t };
+    if ((m = s.match(/^aoe (\d+)( foes)?$/))) return { kind: 'aoe', n: +m[1], foes: !!m[2], text: t };
+    badShapes.push(`${move} ("${t}")`); return null;
+  }
+  const badShapes = [];
   if (M) {
     const g = (r, c) => M.idx[c] === undefined ? null : r[M.idx[c]];
     const TAGS = ['Contact', 'Bite', 'Punch', 'Sound', 'Slicing', 'Wind', 'Dance', 'Pulse', 'Ball/Bomb', 'Powder', 'Heal', 'Recoil'];
@@ -287,9 +300,12 @@ function nextEvolution(final, currentName) {
         target: clean(g(r, 'Target')), effect: clean(g(r, 'Effect')),
         tags: TAGS.filter(t => M.idx[t] !== undefined && clean(r[M.idx[t]])),
         tmMinLevel: num(g(r, 'TM Min Level')),   // optional: the lowest level this move can be taken as a TM re-roll
-        fx: moveEffects(c => g(r, c))
+        fx: moveEffects(c => g(r, c)),
+        shape: parseShape(g(r, 'Shape'), name)
       };
     });
+    if (M.idx['Shape'] === undefined) warnings.push('Moves tab has no "Shape" column yet, so every move reaches 1 hex (Line 1) in battle.');
+    if (badShapes.length) warnings.push(`Moves: can't read Shape (use Line N, Range N, Range N xK, AOE N, AOE N foes, Self, Field): ${badShapes.join(', ')}`);
     if (M.idx['Automated'] === undefined) warnings.push('Moves tab has no "Automated" column, so move effects will be handled by hand in battle.');
     counts.Moves = moves.length;
     files['moves.js'] = js(`Moves (${moves.length})`, 'MOVES_DATA', moves,

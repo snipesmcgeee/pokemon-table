@@ -188,6 +188,18 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .target { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
 .target.on { border: 2px solid var(--accent); background: var(--accent-soft); }
 .target .types { justify-content: flex-start; }
+.board .cell.aim { fill: color-mix(in srgb, var(--accent) 45%, var(--surface)); stroke: var(--accent); stroke-width: 1.6; }
+.reach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rchip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px 2px 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: .85rem; font-weight: 700; }
+.rchip.e2, .rchip.e4 { color: var(--ok); border-color: var(--ok); } .rchip.e05, .rchip.e025 { color: #c77700; border-color: #e0a400; } .rchip.e0 { color: var(--bad); border-color: var(--bad); }
+.target.dir .arrow { font-size: 1.6rem; font-weight: 800; color: var(--accent); min-width: 28px; text-align: center; }
+.target:disabled { cursor: default; opacity: 1; }
+.meters { display: grid; gap: 4px; }
+.meter { display: grid; grid-template-columns: 26px minmax(70px, 140px) 1fr 44px; align-items: center; gap: 6px; font-size: .85rem; }
+.meter .bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line); }
+.meter .bar i { display: block; height: 100%; border-radius: 4px; transition: width .45s ease-out; }
+.meter.now b { color: var(--accent); }
+.meter .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .eff { font-size: .8rem; font-weight: 700; margin-top: 2px; } .eff.e2, .eff.e4 { color: var(--ok); } .eff.e05, .eff.e025 { color: #c77700; } .eff.e0 { color: var(--bad); }
 .hpbar { display: inline-block; width: 110px; height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; vertical-align: middle; border: 1px solid var(--line); }
 .hpbar i { display: block; height: 100%; } .hpnum { font-size: .8rem; margin-left: 6px; font-variant-numeric: tabular-nums; }
@@ -1522,6 +1534,80 @@ function legalPlayerHexes(b, mis) {
 }
 
 
+// ---- Move shapes (the Moves tab's Shape column) ----
+// Line N: pick 1 of 6 directions; hits every Pokémon in the first N hexes (stops at a blocked hex or the map edge).
+// Range N (xK): K different targets within N hexes, each in line of sight. AOE N (foes): everyone within N hexes,
+// allies too unless "foes"; ignores blocked hexes. Self / Field: no target. Blank: Self for self-targeting moves,
+// Field for whole-field moves, otherwise Line 1.
+const FIELD_TARGETS = ['Whole field', "Foes' side"];
+function shapeOf(mv) {
+  if (mv?.shape) return mv.shape;
+  if (SELF_TARGETS.includes(mv?.target)) return { kind: 'self', text: 'Self', auto: true };
+  if (FIELD_TARGETS.includes(mv?.target)) return { kind: 'field', text: 'Field', auto: true };
+  return { kind: 'line', n: 1, text: 'Line 1', auto: true };
+}
+const shapeLabel = mv => { const sh = shapeOf(mv); return sh.text + (sh.auto && sh.kind === 'line' ? ' (default)' : ''); };
+const DIR_ARROW = ['→', '←', '↘', '↖', '↗', '↙'];   // same order as NEIGHBORS on the drawn (pointy-top) board
+// Line of sight: any corner of the attacker's hex to any corner of the target's hex without touching a blocked hex.
+const hexCenter = key => { const [q, r] = key.split(',').map(Number); return [Math.sqrt(3) * (q + r / 2), 1.5 * r]; };
+const hexCorners = key => { const [x, y] = hexCenter(key); return [0, 1, 2, 3, 4, 5].map(i => { const a = Math.PI / 180 * (60 * i - 30); return [x + Math.cos(a), y + Math.sin(a)]; }); };
+const LOS_EPS = 1e-7;
+const orient = (a, b2, c2) => { const v = (b2[0] - a[0]) * (c2[1] - a[1]) - (b2[1] - a[1]) * (c2[0] - a[0]); return Math.abs(v) < LOS_EPS ? 0 : Math.sign(v); };
+const onSeg = (a, b2, p) => Math.min(a[0], b2[0]) - LOS_EPS <= p[0] && p[0] <= Math.max(a[0], b2[0]) + LOS_EPS && Math.min(a[1], b2[1]) - LOS_EPS <= p[1] && p[1] <= Math.max(a[1], b2[1]) + LOS_EPS;
+function segsTouch(p1, p2, p3, p4) {
+  const d1 = orient(p3, p4, p1), d2 = orient(p3, p4, p2), d3 = orient(p1, p2, p3), d4 = orient(p1, p2, p4);
+  if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+  return (d1 === 0 && onSeg(p3, p4, p1)) || (d2 === 0 && onSeg(p3, p4, p2)) || (d3 === 0 && onSeg(p1, p2, p3)) || (d4 === 0 && onSeg(p1, p2, p4));
+}
+function segTouchesHex(a, c2, corners) {
+  const inside = p => { let s = 0; for (let i = 0; i < 6; i++) { const o = orient(corners[i], corners[(i + 1) % 6], p); if (o) { if (s && o !== s) return false; s = o; } } return true; };
+  if (inside(a) || inside(c2)) return true;
+  for (let i = 0; i < 6; i++) if (segsTouch(a, c2, corners[i], corners[(i + 1) % 6])) return true;
+  return false;
+}
+function lineOfSight(mis, from, to) {
+  const bl = (mis.blocked || []).filter(k => k !== from && k !== to);
+  if (!bl.length) return true;
+  const A = hexCorners(from), B = hexCorners(to);
+  const [x1, y1] = hexCenter(from), [x2, y2] = hexCenter(to);
+  const near = bl.filter(k => { const [x, y] = hexCenter(k); return x >= Math.min(x1, x2) - 2 && x <= Math.max(x1, x2) + 2 && y >= Math.min(y1, y2) - 2 && y <= Math.max(y1, y2) + 2; }).map(hexCorners);
+  if (!near.length) return true;
+  return A.some(a => B.some(c2 => !near.some(h => segTouchesHex(a, c2, h))));
+}
+function lineHexes(mis, from, dir, n) {
+  const cells = new Set(mis.cells || []), bl = new Set(mis.blocked || []), out = [];
+  let [q, r] = from.split(',').map(Number);
+  for (let i = 0; i < n; i++) { q += NEIGHBORS[dir][0]; r += NEIGHBORS[dir][1]; const k = q + ',' + r; if (!cells.has(k) || bl.has(k)) break; out.push(k); }
+  return out;
+}
+// What a move can reach from where its user stands.
+// { kind:'self' } | { kind:'free', units, max } (no map: the table judges) | { kind:'line', dirs:[{dir, hexes, hit}] }
+// | { kind:'range', units, max } | { kind:'aoe', units, hexes }
+function moveReach(b, mis, u, mv) {
+  const sh = shapeOf(mv), others = fieldUnits(b).filter(x => x.id !== u.id);
+  if (sh.kind === 'self' || sh.kind === 'field') return { sh, kind: 'self' };
+  if (b.noMap || !u.pos || u.pos === 'table') return { sh, kind: 'free', units: others, max: sh.kind === 'range' ? sh.count : sh.kind === 'line' && sh.n === 1 ? 1 : Infinity };
+  if (sh.kind === 'line') {
+    const dirs = NEIGHBORS.map((_, dir) => { const hexes = lineHexes(mis, u.pos, dir, sh.n); return { dir, hexes, hit: hexes.map(k => others.find(x => x.pos === k)).filter(Boolean) }; });
+    return { sh, kind: 'line', dirs };
+  }
+  if (sh.kind === 'range') return { sh, kind: 'range', max: sh.count, units: others.filter(x => hexDistance(u.pos, x.pos) <= sh.n && lineOfSight(mis, u.pos, x.pos)) };
+  const hexes = (mis.cells || []).filter(k => k !== u.pos && hexDistance(u.pos, k) <= sh.n);
+  return { sh, kind: 'aoe', hexes, units: others.filter(x => hexDistance(u.pos, x.pos) <= sh.n && (!sh.foes || x.side !== u.side)) };
+}
+const reachUnits = r => r.kind === 'line' ? [...new Map(r.dirs.flatMap(d => d.hit).map(x => [x.id, x])).values()] : r.units || [];
+// Effectiveness as it would land: type chart (with Scrappy / strong winds) and abilities that stop the move (×0).
+function effAgainst(b, att, def, base) {
+  const mv = moveFor(b, att, base), aa = abil(b, att);
+  if (abilityBlocks(clone(b), clone(att), clone(def), mv)) return 0;
+  if (base.category === 'Status') return base.name === 'Thunder Wave' && effOf('Electric', def.types) === 0 ? 0 : null;
+  let mults = typeMults(mv.type, def.types);
+  if (['Scrappy', "Mind's Eye"].includes(aa) && ['Normal', 'Fighting'].includes(mv.type)) mults = mults.map((m, i) => def.types[i] === 'Ghost' ? 1 : m);
+  if (weatherNow(b) === 'wind') mults = mults.map((m, i) => def.types[i] === 'Flying' && m > 1 ? 1 : m);
+  return mults.reduce((a, x) => a * x, 1);
+}
+const effShort = e => e === null ? '' : '×' + (e === .25 ? '¼' : e === .5 ? '½' : e);
+
 // ---- Weather & terrain ----
 // Both last 5 of the setter's own turns (the turn it's set counts). If the setter leaves the field,
 // they count down on its trainer's turns instead. Strong weathers last while their Pokémon is on the field.
@@ -2043,7 +2129,8 @@ const WILD_SETUP = final => 'wildSetups/' + String(final).replace(/\//g, '_');  
 const missionLines = n => LINES_DATA.filter(l => l.mission === n);
 const benchKey = f => String(f).replace(/\W/g, '_');   // safe name for a Final inside a saved record
 const clone = o => JSON.parse(JSON.stringify(o));
-const isSelfMove = mv => SELF_TARGETS.includes(mv?.target);
+const isSelfMove = mv => ['self', 'field'].includes(shapeOf(mv).kind);
+const METER_PREV = {};   // last drawn meter widths, so the bars can animate to the new ones
 let BUI = {};   // what this screen is in the middle of (placing a token, choosing a move…); reset on every screen change
 function openModal(build) {   // build(card, close, redraw) fills in the modal's content
   const wrap = document.createElement('div'); wrap.className = 'modal open';
@@ -2058,7 +2145,7 @@ const moveCardHTML = (name, extra = '') => {
   const d = getMove(name) || { name };
   const au = moveAuto(d), tag = au.auto === 'no' ? `<span class="pill warn" title="${esc(au.why)}">Not automated${au.why ? ': ' + esc(au.why) : ''}</span>`
     : au.auto === 'partial' ? `<span class="pill warn">Partly automated: ${esc(au.why)}</span>` : '';
-  return `<small><i class="tchip t-${d.type}">${d.type || '?'}</i> ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Never misses' : ''} · ${esc(d.target || '')}</small>
+  return `<small><i class="tchip t-${d.type}">${d.type || '?'}</i> ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Never misses' : ''} · <span title="${esc(d.target || '')}">${esc(shapeLabel(d))}</span></small>
     <b>${esc(name)}</b><span class="muted">${esc(d.effect || '')}</span>${tag}${extra}`;
 };
 const hpBar = u => { const p = Math.max(0, u.hp / u.maxHp); return `<span class="hpbar"><i style="width:${(p * 100).toFixed(1)}%;background:${p > .5 ? 'var(--ok)' : p > .2 ? '#e0a400' : 'var(--bad)'}"></i></span><span class="hpnum">${u.hp}/${u.maxHp}</span>`; };
@@ -2190,7 +2277,8 @@ function battleView(el, ctx) {
   if (BUI.place && (b.units[BUI.place]?.pos || b.units[BUI.place]?.fainted)) BUI.place = null;   // done placing
 
   // Which hexes light up, and what a tap does
-  let lit = null, tap = null, hint = '';
+  let lit = null, tap = null, hint = '', aim = null;
+  const toggleTarget = (id, max) => { BUI.targets = BUI.targets || []; if (BUI.targets.includes(id)) BUI.targets = BUI.targets.filter(y => y !== id); else BUI.targets = max === 1 ? [id] : BUI.targets.length < max ? [...BUI.targets, id] : (toast(`Up to ${max} targets`), BUI.targets); ctx.redraw(); };
   const placing = BUI.place && b.units[BUI.place] && !b.units[BUI.place].pos ? b.units[BUI.place] : null;
   if (!b.noMap && placing) {
     const u = placing;
@@ -2259,18 +2347,54 @@ function battleView(el, ctx) {
     } else if (t.step === 'act') {
       const mv = BUI.move && getMove(BUI.move);
       if (mv) {
-        const selfMv = isSelfMove(mv), spreadMv = SPREAD_TARGETS.includes(mv.target);
-        const cands = units.filter(u => onField(b, u) && u.id !== turnU.id);
-        BUI.targets = (BUI.targets || []).filter(id => cands.some(u => u.id === id));
+        const R = moveReach(b, mis, turnU, mv);
+        const isFoe = x => x.side !== turnU.side;
+        const card = (x, on, attr) => { const e = effAgainst(b, turnU, x, mv);
+          return `<button class="target ${on ? 'on' : ''} side-${x.side}" ${attr}>${monImg(x.name, x.shiny, 'spr sm')}<div><b>${esc(x.name)}</b> <span class="muted">${isFoe(x) ? esc(sideName(b, x)) : 'ally'}</span>
+            <div class="types">${x.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${esc(abil(b, x) || '')}</div>${hpBar(x)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
+        let pick = '', allyBtn = '';
+        const allyToggle = n => n ? `<button class="btn small ghost" data-act="allies">${BUI.allies ? 'Hide allies' : `Show allies (${n})`}</button>` : '';
+        if (R.kind === 'self') pick = `<div class="muted">${R.sh.kind === 'field' ? 'Affects the field — no target to pick.' : `Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.`}</div>`;
+        else if (R.kind === 'line') {
+          const shown = R.dirs.filter(d => d.hit.length && (BUI.allies || d.hit.some(isFoe)));
+          const allyOnly = R.dirs.filter(d => d.hit.length && !d.hit.some(isFoe)).length;
+          if (BUI.dir != null && !shown.some(d => d.dir === BUI.dir)) BUI.dir = null;
+          BUI.targets = BUI.dir == null ? [] : R.dirs[BUI.dir].hit.map(x => x.id);
+          pick = `<div><b>Choose a direction</b> <span class="muted">(${esc(R.sh.text)}: hits every Pokémon in the first ${R.sh.n} hex${R.sh.n > 1 ? 'es' : ''}, allies too — or tap a lit hex)</span></div>
+            <div class="targets">${shown.map(d => `<button class="target dir ${BUI.dir === d.dir ? 'on' : ''}" data-dir="${d.dir}"><span class="arrow">${DIR_ARROW[d.dir]}</span><div class="stack" style="--gap:4px">${d.hit.map(x => { const e = effAgainst(b, turnU, x, mv); return `<div class="row" style="--gap:6px">${monImg(x.name, x.shiny, 'spr xs')}<b>${esc(x.name)}</b>${isFoe(x) ? '' : ' <span class="muted">ally</span>'}${e !== null ? ` <span class="eff e${String(e).replace('.', '')}">${effShort(e)}</span>` : ''}</div>`; }).join('')}</div></button>`).join('') || '<div class="muted">No enemy in reach. Move closer, or end your turn.</div>'}</div>`;
+          allyBtn = allyToggle(allyOnly);
+        } else if (R.kind === 'aoe') {
+          BUI.targets = R.units.map(x => x.id);
+          pick = `<div><b>Hits everyone in the area</b> <span class="muted">(${esc(R.sh.text)}${R.sh.foes ? '' : ', allies included'})</span></div>
+            <div class="targets">${R.units.map(x => card(x, true, 'disabled')).join('') || '<div class="muted">No one in the area.</div>'}</div>`;
+        } else {   // range or free (no map)
+          const shown = R.units.filter(x => BUI.allies || isFoe(x));
+          BUI.targets = (BUI.targets || []).filter(id => shown.some(x => x.id === id));
+          const many = R.max > 1;
+          pick = `<div><b>Choose ${many ? (R.max === Infinity ? 'targets' : `up to ${R.max} different targets`) : 'a target'}</b> <span class="muted">(${R.kind === 'free' ? `${esc(R.sh.text)} — the table judges range` : `${esc(R.sh.text)}, in line of sight`})</span></div>
+            <div class="targets">${shown.map(x => card(x, BUI.targets.includes(x.id), `data-tgt="${x.id}"`)).join('') || `<div class="muted">No enemy in ${R.kind === 'free' ? 'play' : 'range'}.</div>`}</div>`;
+          allyBtn = allyToggle(R.units.filter(x => !isFoe(x)).length);
+        }
+        const ready = R.kind === 'self' || BUI.targets.length;
         body = `<div class="opt wide on" style="cursor:default">${moveCardHTML(mv.name)}</div>
-          ${selfMv ? `<div class="muted">Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.</div>` : `<div><b>Choose ${spreadMv ? 'targets' : 'a target'}</b> <span class="muted">(${esc(mv.target)} — the table judges range)</span></div>
-          <div class="targets">${cands.map(u => { const e = mv.category === 'Status' ? null : effOf(moveFor(b, turnU, mv).type, u.types), on = BUI.targets.includes(u.id);
-            return `<button class="target ${on ? 'on' : ''} side-${u.side}" data-tgt="${u.id}">${monImg(u.name, u.shiny, 'spr sm')}<div><b>${esc(u.name)}</b> <span class="muted">${esc(sideName(b, u))}</span>
-              <div class="types">${u.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${esc(abil(b, u) || '')}</div>${hpBar(u)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; }).join('')}</div>`}
-          <div class="row"><button class="btn ghost" data-act="back">Back</button><div class="spacer"></div><button class="btn primary" data-act="use" ${selfMv || BUI.targets.length ? '' : 'disabled'}>Use ${esc(mv.name)}</button></div>`;
+          ${pick}${allyBtn ? `<div class="row">${allyBtn}</div>` : ''}
+          <div class="row"><button class="btn ghost" data-act="back">Back</button><div class="spacer"></div><button class="btn primary" data-act="use" ${ready ? '' : 'disabled'}>Use ${esc(mv.name)}</button></div>`;
+        if (!b.noMap) {   // light up the board for this move
+          if (R.kind === 'line') { lit = new Set(R.dirs.filter(d => d.hit.length && (BUI.allies || d.hit.some(isFoe))).flatMap(d => d.hexes)); aim = new Set(BUI.dir != null ? R.dirs[BUI.dir].hexes : []);
+            tap = key => { const d = R.dirs.find(d2 => d2.hexes.includes(key) && lit.has(key)); if (d) { BUI.dir = d.dir; ctx.redraw(); } }; }
+          else if (R.kind === 'aoe') { lit = new Set(R.hexes); aim = new Set(R.units.map(x => x.pos)); }
+          else if (R.kind === 'range') { const shown = R.units.filter(x => BUI.allies || isFoe(x)); lit = new Set(shown.map(x => x.pos)); aim = new Set(shown.filter(x => BUI.targets.includes(x.id)).map(x => x.pos));
+            tap = key => { const x = shown.find(y => y.pos === key); if (x) toggleTarget(x.id, R.max); }; }
+        }
       } else {
         const locked = abil(b, turnU) === 'Gorilla Tactics' && turnU.ab?.locked, trap = trappedBy(b, turnU);
-        body = `${locked ? `<div class="muted">Gorilla Tactics: locked into ${esc(locked)} until it switches out.</div>` : ''}<div class="movegrid">${turnU.moves.filter(m => !locked || m === locked).map(m => `<button class="opt" data-move="${esc(m)}">${moveCardHTML(m)}</button>`).join('')}</div>
+        const chips = name => {   // in-reach enemies under each move, with how well it lands
+          const m2 = getMove(name); if (!m2) return '';
+          const R = moveReach(b, mis, turnU, m2); if (R.kind === 'self') return '';
+          const es = reachUnits(R).filter(x => x.side !== turnU.side);
+          return `<div class="reach">${es.map(x => { const e = effAgainst(b, turnU, x, m2); return `<span class="rchip ${e === null ? '' : 'e' + String(e).replace('.', '')}">${monImg(x.name, x.shiny, 'spr xs')}${e === null ? '' : effShort(e)}</span>`; }).join('') || '<span class="muted" style="font-size:.8rem">No enemy in reach</span>'}</div>`;
+        };
+        body = `${locked ? `<div class="muted">Gorilla Tactics: locked into ${esc(locked)} until it switches out.</div>` : ''}<div class="movegrid">${turnU.moves.filter(m => !locked || m === locked).map(m => `<button class="opt" data-move="${esc(m)}">${moveCardHTML(m, chips(m))}</button>`).join('')}</div>
           <div class="row">${trap ? `<span class="muted">Can't switch: ${esc(trap)}</span>` : `<button class="btn" data-act="switch">⇄ Switch</button>`}<div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
       }
     }
@@ -2282,6 +2406,11 @@ function battleView(el, ctx) {
       <span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span>
       <div style="flex:1;min-width:0"><div><b>${esc(u.name)}</b> <span class="muted" style="font-size:.85rem">Lv ${u.level}${u.side === 'p' ? ' · ' + esc(b.names?.[u.owner] || '') : ''}${!u.out && !u.fainted ? ' · bench' : ''}${u.kos ? ` · ${u.kos} KO` : ''}</span> ${statusChip(u)} ${stageChips(u)}</div>
         <div class="abil">${esc(abil(b, u) || u.ability || '')}${(u.ab?.now && u.ab.now !== u.ability) ? ` <span class="muted">(was ${esc(u.ability)})</span>` : ''} ${abilityTag(abil(b, u) || u.ability)}</div>${hpBar(u)}</div></div>`;
+  // Turn meters: each Pokémon's meter filling toward its Order number (the one acting shows full)
+  const meterOf = u => { const ord = speedTier(currentSpeed(u, b)).order; return b.turn?.id === u.id ? { ord, val: ord, pct: 100 } : { ord, val: Math.min(u.meter, ord), pct: Math.min(100, 100 * u.meter / ord) }; };
+  const meterRows = fieldUnits(b).map(u => ({ u, m: meterOf(u) })).sort((p, q) => (q.m.pct - p.m.pct) || (p.m.ord - q.m.ord)).map(({ u, m }) =>
+    `<div class="meter ${b.turn?.id === u.id ? 'now' : ''}"><span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span><span class="nm"><b>${esc(u.name)}</b></span>
+      <span class="bar"><i data-meter="${u.id}" data-w="${m.pct.toFixed(1)}" style="width:${(METER_PREV[u.id] ?? m.pct).toFixed(1)}%;background:${ringOf(u)}"></i></span><span class="muted">${b.turn?.id === u.id ? 'Now' : `${m.val}/${m.ord}`}</span></div>`).join('');
   const shownWild = units.filter(u => u.side === 'w' && (isDM || u.revealed || u.out));   // players only see wild Pokémon once they've been sent out
   const last = b.last;
   const ft = fieldText(b);
@@ -2291,7 +2420,8 @@ function battleView(el, ctx) {
     ${waits.length ? `<div class="card stack">${waits.join('')}</div>` : ''}
     ${bench.length && !b.over ? `<div class="row"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
     ${b.noMap ? '' : `${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard"></svg>`}
-    ${order.length && b.started && !b.over ? `<div class="row orderstrip"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>` : ''}
+    ${order.length && b.started && !b.over ? `<div class="row orderstrip"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>
+      <div class="meters card">${meterRows}</div>` : ''}
     ${last ? `<details class="card"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
     <div class="grid">
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Players</h2>${units.filter(u => u.side === 'p').map(unitRow).join('')}</div>
@@ -2304,10 +2434,14 @@ function battleView(el, ctx) {
   </div>`;
 
   if (!b.noMap) renderBoard(el.querySelector('#bboard'), {
-    cells: mis.cells, blocked: mis.blocked, starts: mis.starts, wilds: mis.wilds, reach: lit,
+    cells: mis.cells, blocked: mis.blocked, starts: mis.starts, wilds: mis.wilds, reach: lit, aim,
     selected: turnU?.pos && turnU.pos !== 'table' ? turnU.pos : null,
     units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer }))
   }, tap || (isDM ? key => { const u = units.find(x => onField(b, x) && x.pos === key); if (u) { BUI.dmMove = u.id; ctx.redraw(); } } : null));
+
+  // Animate the meter bars from where they were to where they are now (a CSS transition; costs nothing between turns)
+  const bars = el.querySelectorAll('[data-meter]');
+  if (bars.length) { void el.offsetWidth; requestAnimationFrame(() => bars.forEach(x => { x.style.width = x.dataset.w + '%'; METER_PREV[x.dataset.meter] = +x.dataset.w; })); }
 
   // ---- Wiring ----
   const $$ = (sel, f) => el.querySelectorAll(sel).forEach(x => x.onclick = () => f(x));
@@ -2324,13 +2458,9 @@ function battleView(el, ctx) {
     save(settle(nb));
   });
   $$('[data-hold]', x => { const nb = clone(b); nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.hold); save(settle(nb)); });
-  $$('[data-move]', x => { BUI.move = x.dataset.move; BUI.targets = []; ctx.redraw(); });
-  $$('[data-tgt]', x => {
-    const mv = getMove(BUI.move), id = x.dataset.tgt;
-    if (SPREAD_TARGETS.includes(mv?.target)) BUI.targets = BUI.targets.includes(id) ? BUI.targets.filter(y => y !== id) : [...BUI.targets, id];
-    else BUI.targets = [id];
-    ctx.redraw();
-  });
+  $$('[data-move]', x => { BUI.move = x.dataset.move; BUI.targets = []; BUI.dir = null; BUI.allies = false; ctx.redraw(); });
+  $$('[data-tgt]', x => { const mv = getMove(BUI.move); toggleTarget(x.dataset.tgt, mv ? moveReach(b, mis, turnU, mv).max ?? 1 : 1); });
+  $$('[data-dir]', x => { BUI.dir = +x.dataset.dir; ctx.redraw(); });
   $$('[data-switch]', x => {
     const nb = clone(b), out = nb.units[b.turn.id], inc = nb.units[x.dataset.switch];
     const trap = trappedBy(nb, out); if (trap) return toast(`${out.name} can't switch out (${trap})`);
@@ -2344,7 +2474,8 @@ function battleView(el, ctx) {
   $$('[data-edit]', x => editUnitModal(ctx, x.dataset.edit));
   $$('[data-act]', async x => {
     const a = x.dataset.act;
-    if (a === 'back') { BUI.move = null; BUI.switching = false; BUI.targets = []; return ctx.redraw(); }
+    if (a === 'back') { BUI.move = null; BUI.switching = false; BUI.targets = []; BUI.dir = null; BUI.allies = false; return ctx.redraw(); }
+    if (a === 'allies') { BUI.allies = !BUI.allies; return ctx.redraw(); }
     if (a === 'switch') { BUI.switching = true; return ctx.redraw(); }
     if (a === 'startturns') {
       if (!units.some(u => u.side === 'w' && onField(b, u))) return toast('Send out at least one wild Pokémon');
@@ -2646,14 +2777,18 @@ function planModal(m, saveMon) {
     const evTotal = STAT_KEYS.reduce((a, k) => a + (+plan.evs[k] || 0), 0);
     card.innerHTML = `<h2 style="margin:0">Plan for ${esc(m.species)}</h2><div class="muted">What you're aiming for. Re-rolls and EVs get flagged against this.</div>
       <label class="field"><span>Target nature</span><select id="pNat"><option value="">— none —</option>${NATURE_NAMES.map(n => { const x = natureInfo(n); return `<option value="${n}" ${n === plan.nature ? 'selected' : ''}>${n}${x.up ? ` (+${STAT_LABEL[x.up]} −${STAT_LABEL[x.down]})` : ' (neutral)'}</option>`; }).join('')}</select></label>
-      <label class="field"><span>Target ability</span><select id="pAb"><option value="">— none —</option>${slots.map(([sl, a, fa]) => `<option value="${sl}" ${sl === plan.abilitySlot ? 'selected' : ''}>${esc(a)}${fa && fa !== a ? ` → ${esc(fa)} as ${esc(m.finalName)}` : ''}${sl === 'H' ? ' (hidden)' : ''}</option>`).join('')}</select></label>
+      <div><div style="font-weight:650;margin-bottom:6px">Target ability</div><div class="stack" style="--gap:6px">
+        <button class="opt wide ${!plan.abilitySlot ? 'on' : ''}" data-ab=""><b>— none —</b></button>
+        ${slots.map(([sl, a, fa]) => `<button class="opt wide ${sl === plan.abilitySlot ? 'on' : ''}" data-ab="${sl}"><small>Slot ${sl === 'H' ? 'Hidden' : sl}${sl === m.abilitySlot ? ' · current' : ''}</small>
+          <b>${esc(a)}</b><span class="muted">${esc(getAbility(a)?.effect || '')}</span>${abilityTag(a)}
+          ${fa && fa !== a ? `<b style="margin-top:6px">→ ${esc(fa)} <span class="muted" style="font-weight:400">as ${esc(m.finalName)}</span></b><span class="muted">${esc(getAbility(fa)?.effect || '')}</span>${abilityTag(fa)}` : ''}</button>`).join('')}</div></div>
       <div><div style="font-weight:650;margin-bottom:6px">IVs that matter (you want these at 31)</div><div class="seg">${STAT_KEYS.map(k => `<button aria-pressed="${plan.ivStats.includes(k)}" data-iv="${k}">${STAT_LABEL[k]} <span class="muted">${m.ivs?.[k] ?? '–'}</span></button>`).join('')}</div></div>
       <div><div style="font-weight:650;margin-bottom:6px">Target EVs <span class="muted">(${evTotal}/510, max 252 each)</span></div>
         <div class="two">${STAT_KEYS.map(k => `<label class="field"><span>${STAT_LABEL[k]} <span class="muted">(Lv 100 ${esc(m.finalName)}: ${calcStat(k, fin.stats[k], m.ivs?.[k] ?? 31, +plan.evs[k] || 0, 100, plan.nature || m.nature)})</span></span><input type="number" min="0" max="252" step="4" data-ev="${k}" value="${plan.evs[k] || ''}" placeholder="0"></label>`).join('')}</div></div>
       ${evTotal > 510 ? '<div class="banner bad">Target EVs add up to more than 510.</div>' : ''}
       <div class="row"><button class="btn ghost" data-x>Cancel</button><div class="spacer"></div><button class="btn primary" data-ok ${evTotal > 510 ? 'disabled' : ''}>Save plan</button></div>`;
     card.querySelector('#pNat').onchange = e => { plan.nature = e.target.value; redraw(); };
-    card.querySelector('#pAb').onchange = e => { plan.abilitySlot = e.target.value; };
+    card.querySelectorAll('[data-ab]').forEach(x => x.onclick = () => { plan.abilitySlot = x.dataset.ab; redraw(); });
     card.querySelectorAll('[data-iv]').forEach(x => x.onclick = () => { const k = x.dataset.iv; plan.ivStats = plan.ivStats.includes(k) ? plan.ivStats.filter(y => y !== k) : [...plan.ivStats, k]; redraw(); });
     card.querySelectorAll('[data-ev]').forEach(x => x.onchange = () => { plan.evs[x.dataset.ev] = Math.max(0, Math.min(252, parseInt(x.value) || 0)); redraw(); });
     card.querySelector('[data-x]').onclick = close;
@@ -2856,7 +2991,7 @@ function renderBoard(svg, o, onTap) {
   const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []), wilds = new Set(o.wilds || []);
   let h = `<defs><clipPath id="tclip"><circle cx="22" cy="22" r="21"/></clipPath></defs>`;
   for (const k of o.ghosts || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell ghost" points="${poly(x, y, S * .96)}"/></g>`; }
-  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : o.reach?.has(k) ? ' reach' : starts.has(k) ? ' start' : wilds.has(k) ? ' wild' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
+  for (const k of o.cells || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell${blocked.has(k) ? ' blocked' : o.aim?.has(k) ? ' aim' : o.reach?.has(k) ? ' reach' : starts.has(k) ? ' start' : wilds.has(k) ? ' wild' : ''}" points="${poly(x, y, S * .96)}"/></g>`; }
   for (const [t, k] of Object.entries(o.symbols || {})) {   // type icons: the left (symbol) part of PokeAPI's label art, clipped round
     const [x, y] = xy(k), d = S * 1.35;
     h += `<svg class="sym" x="${x - d / 2}" y="${y - d / 2}" width="${d}" height="${d}" viewBox="0 0 44 44"><circle cx="22" cy="22" r="21" class="symbg"/><image href="${typeIconUrl(t)}" width="200" height="44" clip-path="url(#tclip)"/></svg>`;
