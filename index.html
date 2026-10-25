@@ -188,6 +188,10 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .target { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); cursor: pointer; }
 .target.on { border: 2px solid var(--accent); background: var(--accent-soft); }
 .target .types { justify-content: flex-start; }
+.board .stbadge text { font-size: 3.2px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.newmoves { background: #fff8e6; border: 1px solid #f3d27a; color: #6b4e00; border-radius: 10px; padding: 8px 10px; font-size: .88rem; }
+.newdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); vertical-align: middle; margin-left: 2px; }
+.st-note { margin-top: 8px; font-size: .9rem; }
 .board .cell.aim { fill: color-mix(in srgb, var(--accent) 45%, var(--surface)); stroke: var(--accent); stroke-width: 1.6; }
 .reach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .rchip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 8px 2px 2px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: .85rem; font-weight: 700; }
@@ -195,7 +199,7 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .target.dir .arrow { font-size: 1.6rem; font-weight: 800; color: var(--accent); min-width: 28px; text-align: center; }
 .target:disabled { cursor: default; opacity: 1; }
 .meters { display: grid; gap: 4px; }
-.meter { display: grid; grid-template-columns: 26px minmax(70px, 140px) 1fr 44px; align-items: center; gap: 6px; font-size: .85rem; }
+.meter { display: grid; grid-template-columns: 26px minmax(70px, 140px) 1fr auto; align-items: center; gap: 6px; font-size: .85rem; }
 .meter .bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; border: 1px solid var(--line); }
 .meter .bar i { display: block; height: 100%; border-radius: 4px; transition: width .45s ease-out; }
 .meter.now b { color: var(--accent); }
@@ -717,9 +721,11 @@ function screenDM(cid) {
     body.innerHTML = `<div class="card stack"><h2 style="margin:0">Mission ${N} complete</h2>
       <div>${(b.kos || []).length} KOs · ${(b.catches || []).length ? 'Caught: ' + b.catches.map(x => `<b>${esc(x.species)}</b> (${esc(b.names?.[x.pid] || '')})`).join(', ') : 'No catches'}</div>
       <div class="stack" style="--gap:6px">${(c.players || []).map(p => { const t = teams[p.id] || [];
-        const todo = [t.filter(m => m.step !== 'done').length && `${t.filter(m => m.step !== 'done').length} catch(es) to set up`, t.reduce((a, m) => a + (m.rerolls?.mission === N ? m.rerolls.left + (m.reroll ? 1 : 0) : 0), 0) && 're-rolls left', t.some(m => m.evPending) && 'EVs to place'].filter(Boolean);
+        const todo = todoFor(t);
         return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)} <span class="muted">· ${todo.length ? todo.join(' · ') : 'all done ✓'}</span></div>`; }).join('')}</div>
-      <div class="muted">Re-rolls and EVs can also be finished later. When you're ready, tap <b>Next mission ▶</b> at the top.</div></div>`;
+      <div class="muted">Re-rolls and EVs carry over and can be finished later, from each player's team list. When you're ready, tap <b>Next mission ▶</b> at the top.</div>
+      <div class="row"><div class="spacer"></div><button class="btn small ghost" id="restartM">↺ Restart mission</button></div></div>`;
+    document.getElementById('restartM').onclick = () => restartMission(ctx);
   };
   const drawStarters = () => {   // Mission 0: claim order → pick order, picks, then each player's setup progress
     const el = document.getElementById('starterArea'); if (!el) return;
@@ -852,7 +858,12 @@ function screenDM(cid) {
       </div>`;
     const setM = n => DB.update(CAMP(cid), { mission: n }).catch(saveErr);
     document.getElementById('prev').onclick = () => setM(m - 1);
-    document.getElementById('next').onclick = () => setM(m + 1);
+    document.getElementById('next').onclick = () => {   // warn if anyone still has things to do (nothing is lost: it all carries over)
+      const open = (c.players || []).map(p => [p.name, todoFor(teams[p.id] || [])]).filter(([, t]) => t.length);
+      const midBattle = mis?.phase === 'battle' && !mis.battle?.over;
+      if ((open.length || midBattle) && !confirm(`${midBattle ? `Mission ${m}'s battle isn't finished.\n\n` : ''}${open.length ? `Not everyone is done:\n${open.map(([n, t]) => `• ${n}: ${t.join(', ')}`).join('\n')}\n\nRe-rolls, EVs and catch setups carry over, so nothing is lost.\n\n` : ''}Go to Mission ${m + 1} anyway?`)) return;
+      setM(m + 1);
+    };
     document.getElementById('storyBox').ontoggle = e => { storyOpen = e.target.open; };
     app.querySelectorAll('[data-map]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { 'settings.mapMode': b.dataset.map }).catch(saveErr));
     app.querySelectorAll('[data-dice]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { 'settings.dice': b.dataset.dice }).catch(saveErr));
@@ -1094,8 +1105,8 @@ function screenPlayer(cid, pid) {
         ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
             <div class="statline">${statLine(m)}</div>
             <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div>
-            ${planSummary(m)}
-            ${canEdit ? `<div class="row" style="gap:8px;margin-top:6px">${m.evPending ? `<button class="btn small primary" data-tev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}<button class="btn small" data-tmv="${m.uid}">Moves</button><button class="btn small" data-tpl="${m.uid}">Plan</button></div>` : ''}</div>`
+            ${newMovesNote(m)}${planSummary(m)}
+            ${canEdit ? `<div class="row" style="gap:8px;margin-top:6px">${m.rerolls?.left > 0 || m.reroll ? `<button class="btn small primary" data-trr="${m.uid}">🎲 Re-roll${m.reroll ? ' (result waiting)' : ` (${m.rerolls.left} left)`}</button>` : ''}${m.evPending ? `<button class="btn small primary" data-tev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}<button class="btn small" data-tmv="${m.uid}">Moves${m.newMoves ? ' <span class="newdot"></span>' : ''}</button><button class="btn small" data-tpl="${m.uid}">Plan</button></div>` : ''}</div>`
           : draftOn ? `<div class="muted">Setup opens once everyone has picked.</div>`
           : `<div><button class="btn primary small" onclick="go('#/c/${cid}/p/${pid}/setup/${m.uid}')">Set up · ${STEP_NAMES[m.step]}</button></div>`}
       </div></div>`;
@@ -1151,6 +1162,7 @@ function screenPlayer(cid, pid) {
       picking = false;
     });
     app.querySelectorAll('[data-tev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.tev), saveMon));
+    app.querySelectorAll('[data-trr]').forEach(x => x.onclick = () => rerollModal(team.find(m => m.uid === x.dataset.trr), saveMon, c.settings?.dice || 'physical', misNum));
     app.querySelectorAll('[data-tmv]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.tmv), saveMon));
     app.querySelectorAll('[data-tpl]').forEach(x => x.onclick = () => planModal(team.find(m => m.uid === x.dataset.tpl), saveMon));
     app.querySelectorAll('[data-col]').forEach(b => b.onclick = () => DB.update(CAMP(cid), { ['colors.' + pid]: b.dataset.col }).catch(saveErr));
@@ -1363,6 +1375,10 @@ const STAGE_LABEL = { atk: 'ATK', def: 'DEF', spa: 'SP ATK', spd: 'SP DEF', spe:
 const stageMult = s => s >= 0 ? (2 + s) / 2 : 2 / (2 - s);
 const STATUS_NAME = { brn: 'Burned', par: 'Paralyzed', psn: 'Poisoned', tox: 'Badly poisoned', slp: 'Asleep', frz: 'Frozen' };
 const STATUS_SHORT = { brn: 'BRN', par: 'PAR', psn: 'PSN', tox: 'TOX', slp: 'SLP', frz: 'FRZ' };
+const STATUS_COLOR = { brn: ['#ffd9c7', '#a33a00'], par: ['#fff1b8', '#7a6000'], psn: ['#ead7f7', '#6a1b9a'], tox: ['#ead7f7', '#6a1b9a'], slp: ['#dfe4ea', '#445'], frz: ['#d4f1fb', '#01579b'] };
+const statusNote = u => ({ brn: 'Burned: loses 1/16 of its HP at the end of each of its turns, and its physical attacks are weaker.',
+  psn: 'Poisoned: loses 1/8 of its HP at the end of each of its turns.', tox: `Badly poisoned: loses ${Math.max(1, u.tox)}/16 of its HP at the end of this turn, more each turn.`,
+  par: 'Paralyzed: slower, and a D100 of 1–25 at the start of its turn means it can\'t move.', slp: `Asleep: can't act (${u.slp} turn${u.slp === 1 ? '' : 's'} left).`, frz: 'Frozen: can\'t act; a D100 of 1–20 at the start of its turn thaws it.' })[u.status] || '';
 const STATUS_IMMUNE = { brn: ['Fire'], par: ['Electric'], psn: ['Poison', 'Steel'], tox: ['Poison', 'Steel'], frz: ['Ice'], slp: [] };
 const pokeRound = v => (v % 1 > 0.5 ? Math.ceil(v) : Math.floor(v));   // the games round .5 down here
 function currentSpeed(u, b) {   // speed after stages, paralysis, and speed abilities in weather/terrain
@@ -1444,16 +1460,19 @@ const onField = (b, u) => u.out && !u.fainted && (b.noMap || !!u.pos);
 function pickNext(b) {
   const act = Object.values(b.units).filter(u => onField(b, u));
   if (!act.length) return null;
+  // A Pokémon sent in after a faint while anyone else's bar had something in it can't take the very next turn
+  const elig = act.some(u => !u.waitOne) ? act.filter(u => !u.waitOne) : act;
   const need = u => speedTier(currentSpeed(u, b)).order - u.meter;
-  const k = Math.max(0, Math.min(...act.map(need)));
+  const k = Math.max(0, Math.min(...elig.map(need)));
   act.forEach(u => u.meter += k);
-  const ready = act.filter(u => need(u) <= 0);
+  const ready = elig.filter(u => need(u) <= 0);
   ready.sort((a, b2) => currentSpeed(b2, b) - currentSpeed(a, b) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
   const win = ready[0];
   if (ready.length > 1 && currentSpeed(ready[1], b) === currentSpeed(win, b) && ready[1].side === win.side) {
     b.init = [...b.init.filter(id => id !== win.id), win.id];   // won a tie on the hidden list → goes to the bottom
   }
   win.meter = 0;
+  act.forEach(u => { if (u.waitOne) delete u.waitOne; });   // someone else has now gone, so newcomers are back to normal
   return win;
 }
 function upcoming(b, n) {   // preview of the next n turns (doesn't change the real battle)
@@ -2155,18 +2174,18 @@ const statusChip = u => u.status ? `<span class="pill st-${u.status}">${STATUS_S
 // ---- DM: mission setup (wild bench, saved setups, parties) ----
 function missionSetupDM(el, ctx) {
   const { c, mis, cid, misNum, teams, wildSetups } = ctx;
-  const N = misNum, setup = mis.setup || {}, bench = setup.bench || {};
+  const N = misNum, setup = mis.setup || {};
   const lines = missionLines(N);
   const perPlayer = setup.perPlayer || ((c.players || []).length === 1 ? 2 : 1);
   const upd = patch => DB.update(MISSION(cid, N), patch).catch(saveErr);
   el.innerHTML = `<div class="card stack">
     <div class="row"><h2 style="margin:0">Mission ${N} setup</h2><div class="spacer"></div><span class="muted">${lines.length} Pokémon in this mission</span></div>
-    <div class="muted">Tick the wild Pokémon in this battle. Ability and moves save automatically and come back next time, in any campaign. Wild Pokémon: level ${N}, neutral nature, ${Math.min(510, 10 * N)} EVs spread evenly, IVs totaling ${wildIVTotal(N)} split randomly each battle (stats shown use an even split).</div>
+    <div class="muted">Every Pokémon in this mission's list is in the battle. Ability and moves save automatically and come back next time, in any campaign. Wild Pokémon: level ${N}, neutral nature, ${Math.min(510, 10 * N)} EVs spread evenly, IVs totaling ${wildIVTotal(N)} split randomly each battle (stats shown use an even split).</div>
     <div class="wildgrid">${lines.map(l => {
-      const ws = wildSetups[String(l.final)], u = unitFromWild(l.final, N, ws), on = !!bench[benchKey(l.final)];
-      return `<div class="wildcard ${on ? 'on' : ''}">
-        <label class="row" style="cursor:pointer"> <input type="checkbox" data-bench="${benchKey(l.final)}" ${on ? 'checked' : ''}>${monImg(u.name, false, 'spr sm')}
-          <div><b>${esc(u.name)}</b><div class="muted" style="font-size:.8rem">Lv ${N} · ${u.types.join(' / ')} · Final: ${esc(l.name)}</div></div></label>
+      const ws = wildSetups[String(l.final)], u = unitFromWild(l.final, N, ws);
+      return `<div class="wildcard on">
+        <div class="row">${monImg(u.name, false, 'spr sm')}
+          <div><b>${esc(u.name)}</b><div class="muted" style="font-size:.8rem">Lv ${N} · ${u.types.join(' / ')} · Final: ${esc(l.name)}</div></div></div>
         <div class="statline">${STAT_KEYS.map(k => `<span>${STAT_LABEL[k]} <b>${u.stats[k]}</b></span>`).join('')}</div>
         <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option value="${esc(a)}" ${a === u.ability ? 'selected' : ''}>${esc(a)}${abilityStatus(a).auto === 'yes' ? '' : ' (not automated)'}</option>`).join('')}</select></label>
         <div class="abil">${esc(getAbility(u.ability)?.effect || '')} ${abilityTag(u.ability)}</div>
@@ -2174,7 +2193,7 @@ function missionSetupDM(el, ctx) {
         ${ws ? '' : '<div class="muted" style="font-size:.8rem">Using defaults (first ability, 4 newest moves).</div>'}
       </div>`; }).join('')}</div>
     <div><div class="muted" style="margin-bottom:6px">Pokémon each player sends out at once</div>
-      <div class="seg">${[1, 2, 3].map(n => `<button aria-pressed="${n === perPlayer}" data-per="${n}">${n}</button>`).join('')}</div></div>
+      <div class="seg">${[1, 2, 3, 4, 5, 6].map(n => `<button aria-pressed="${n === perPlayer}" data-per="${n}">${n}</button>`).join('')}</div></div>
     <div class="stack" style="--gap:6px"><div style="font-weight:650">Players</div>${(c.players || []).map(p => {
       const team = (teams[p.id] || []).filter(m => m.step === 'done'), party = partyOf(setup, p.id, team, c), leads = leadsOf(setup, p.id, party), need = leadsNeeded(party, perPlayer);
       return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)}
@@ -2182,7 +2201,6 @@ function missionSetupDM(el, ctx) {
         ${team.length && leads.length !== need ? `<span class="pill warn">needs to star ${need}</span>` : ''}</div>`; }).join('')}</div>
     <div class="row"><div class="spacer"></div><button class="btn primary" id="startBattle">▶ Start battle</button></div>
   </div>`;
-  el.querySelectorAll('[data-bench]').forEach(b => b.onchange = () => upd({ ['setup.bench.' + b.dataset.bench]: b.checked ? true : DB.DEL }));
   el.querySelectorAll('[data-per]').forEach(b => b.onclick = () => upd({ 'setup.perPlayer': +b.dataset.per }));
   const saveWild = (final, patch) => { const u = unitFromWild(final, N, wildSetups[String(final)]); DB.set(WILD_SETUP(final), { ability: u.ability, moves: u.moves, ...patch }).catch(saveErr); };
   el.querySelectorAll('[data-ab]').forEach(s => s.onchange = () => saveWild(s.dataset.ab, { ability: s.value }));
@@ -2200,8 +2218,8 @@ function missionSetupDM(el, ctx) {
     });
   });
   document.getElementById('startBattle').onclick = () => {
-    const chosen = lines.filter(l => bench[benchKey(l.final)]);
-    if (!chosen.length) return toast('Tick at least one wild Pokémon');
+    const chosen = lines;   // every wild Pokémon on the mission's list
+    if (!chosen.length) return toast('This mission has no Pokémon on the Lines tab');
     const units = {}, names = {}, lastParties = {}, missing = [];
     for (const p of c.players || []) {
       names[p.id] = p.name;
@@ -2398,7 +2416,7 @@ function battleView(el, ctx) {
           <div class="row">${trap ? `<span class="muted">Can't switch: ${esc(trap)}</span>` : `<button class="btn" data-act="switch">⇄ Switch</button>`}<div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
       }
     }
-    turnHTML = `<div class="turnpanel"><div class="row">${monImg(turnU.name, turnU.shiny, 'spr sm')}<div><b style="font-size:1.1rem">${esc(turnU.name)}'s turn</b> ${statusChip(turnU)}<div class="muted" style="font-size:.85rem">${esc(sideName(b, turnU))} · Lv ${turnU.level} · ${hpBar(turnU)}</div></div></div>${body}</div>`;
+    turnHTML = `<div class="turnpanel"><div class="row">${monImg(turnU.name, turnU.shiny, 'spr sm')}<div><b style="font-size:1.1rem">${esc(turnU.name)}'s turn</b> ${statusChip(turnU)}<div class="muted" style="font-size:.85rem">${esc(sideName(b, turnU))} · Lv ${turnU.level} · ${hpBar(turnU)}</div></div></div>${turnU.status ? `<div class="banner warn st-note">${esc(statusNote(turnU))}</div>` : ''}${body}</div>`;
   }
 
   const order = upcoming(b, 7).map(id => b.units[id]).filter(Boolean);
@@ -2410,7 +2428,7 @@ function battleView(el, ctx) {
   const meterOf = u => { const ord = speedTier(currentSpeed(u, b)).order; return b.turn?.id === u.id ? { ord, val: ord, pct: 100 } : { ord, val: Math.min(u.meter, ord), pct: Math.min(100, 100 * u.meter / ord) }; };
   const meterRows = fieldUnits(b).map(u => ({ u, m: meterOf(u) })).sort((p, q) => (q.m.pct - p.m.pct) || (p.m.ord - q.m.ord)).map(({ u, m }) =>
     `<div class="meter ${b.turn?.id === u.id ? 'now' : ''}"><span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span><span class="nm"><b>${esc(u.name)}</b></span>
-      <span class="bar"><i data-meter="${u.id}" data-w="${m.pct.toFixed(1)}" style="width:${(METER_PREV[u.id] ?? m.pct).toFixed(1)}%;background:${ringOf(u)}"></i></span><span class="muted">${b.turn?.id === u.id ? 'Now' : `${m.val}/${m.ord}`}</span></div>`).join('');
+      <span class="bar"><i data-meter="${u.id}" data-w="${m.pct.toFixed(1)}" style="width:${(METER_PREV[u.id] ?? m.pct).toFixed(1)}%;background:${ringOf(u)}"></i></span><span class="muted">${b.turn?.id === u.id ? 'Now' : `${m.val}/${m.ord}`}${u.waitOne ? ' · waits' : ''}</span></div>`).join('');
   const shownWild = units.filter(u => u.side === 'w' && (isDM || u.revealed || u.out));   // players only see wild Pokémon once they've been sent out
   const last = b.last;
   const ft = fieldText(b);
@@ -2430,13 +2448,14 @@ function battleView(el, ctx) {
     <div class="card"><h2>Battle log</h2><div class="log">${(b.log || []).slice(-14).reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div>
       <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities and moves tagged "Not automated" are applied by hand (DM: tap a Pokémon to edit it).</div></div>
     ${isDM ? `<div class="row">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
+      <button class="btn small ghost" data-act="restart">↺ Restart mission</button>
       ${b.over ? `<button class="btn primary" data-act="finish">Finish mission ▶</button>` : `<button class="btn small ghost" data-act="endbattle">End battle</button>`}</div>` : ''}
   </div>`;
 
   if (!b.noMap) renderBoard(el.querySelector('#bboard'), {
     cells: mis.cells, blocked: mis.blocked, starts: mis.starts, wilds: mis.wilds, reach: lit, aim,
     selected: turnU?.pos && turnU.pos !== 'table' ? turnU.pos : null,
-    units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer }))
+    units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer, status: u.status }))
   }, tap || (isDM ? key => { const u = units.find(x => onField(b, x) && x.pos === key); if (u) { BUI.dmMove = u.id; ctx.redraw(); } } : null));
 
   // Animate the meter bars from where they were to where they are now (a CSS transition; costs nothing between turns)
@@ -2446,13 +2465,14 @@ function battleView(el, ctx) {
   // ---- Wiring ----
   const $$ = (sel, f) => el.querySelectorAll(sel).forEach(x => x.onclick = () => f(x));
   $$('[data-place]', x => { BUI.place = BUI.place === x.dataset.place ? null : x.dataset.place; ctx.redraw(); });
+  const markNewcomer = (nb, u) => { if (nb.started && fieldUnits(nb).some(x => x.id !== u.id && x.meter > 0)) u.waitOne = true; };
   $$('[data-sendout]', x => {
-    const nb = clone(b), u = nb.units[x.dataset.sendout]; u.out = true; u.meter = 0; u.revealed = true;
+    const nb = clone(b), u = nb.units[x.dataset.sendout]; u.out = true; u.meter = 0; u.revealed = true; markNewcomer(nb, u);
     if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); if (nb.started) enterField(nb, u); } else BUI.place = u.id;
     save(settle(nb));
   });
   $$('[data-unit]', x => {
-    const nb = clone(b), u = nb.units[x.dataset.unit]; u.out = true; u.meter = 0; u.revealed = true;
+    const nb = clone(b), u = nb.units[x.dataset.unit]; u.out = true; u.meter = 0; u.revealed = true; markNewcomer(nb, u);
     nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.need);
     if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); if (nb.started) enterField(nb, u); } else BUI.place = u.id;
     save(settle(nb));
@@ -2486,6 +2506,7 @@ function battleView(el, ctx) {
     }
     if (a === 'endbattle') { if (!confirm('End the battle now? KOs and catches so far still count.')) return; const nb = clone(b); nb.over = 'dm'; nb.turn = null; blog(nb, 'The DM ended the battle.'); return save(nb); }
     if (a === 'finish') return finishMission(ctx);
+    if (a === 'restart') return restartMission(ctx);
     if (a === 'skip') { const nb = clone(b); blog(nb, `${turnU.name} didn't use a move.`); BUI = {}; return save(finishTurnSafe(nb)); }
     if (a === 'stay') { const nb = clone(b); nb.turn.step = 'act'; return save(nb); }
     if (a === 'rollmove') {
@@ -2691,24 +2712,67 @@ function editUnitModal(ctx, id) {
 }
 
 // ---- Finishing a mission: level up, EVs, evolution, re-roll tokens, new catches ----
+// Restart: back to this mission's setup (same map, same party picks). During a battle it just wipes the battle;
+// after Finish it also puts every team back the way it was at Finish (undoing level-ups, EVs, catches, re-rolls).
+async function restartMission(ctx) {
+  const { c, mis, cid, misNum: N } = ctx, after = mis.phase === 'after';
+  let msg = after ? `Restart Mission ${N}?\n\nEveryone's team goes back to how it was when the mission was finished: level-ups, evolutions, EVs, catches, re-rolls and anything done since are undone.` : `Restart Mission ${N}?\n\nThe battle is wiped (HP, KOs, catches) and everyone goes back to setup with the same map.`;
+  if (after && !mis.snapshot) return toast('This mission was finished before restarts were possible, so it can\'t be undone.');
+  const later = after ? await once(MISSION(cid, N + 1)) : null;
+  if (later && (later.phase === 'battle' || later.phase === 'after')) msg += `\n\n⚠ Mission ${N + 1} has already been played. Its results will be undone too.`;
+  if (!confirm(msg)) return;
+  try {
+    if (after) {
+      for (const [pid, team] of Object.entries(mis.snapshot.teams || {})) await DB.set(PLAYER(cid, pid), { team });
+      await DB.update(CAMP(cid), { takenFinals: mis.snapshot.takenFinals || [], mission: N });
+    }
+    BUI = {};
+    if (after) for (let k = N + 1; k <= 100; k++) {   // later missions that were played are reset too
+      const d = await once(MISSION(cid, k)); if (!d || !['battle', 'after'].includes(d.phase)) break;
+      await DB.update(MISSION(cid, k), { phase: 'setup', battle: DB.DEL, snapshot: DB.DEL });
+    }
+    await DB.update(MISSION(cid, N), { phase: 'setup', battle: DB.DEL, snapshot: DB.DEL });
+    toast(`Mission ${N} restarted`);
+  } catch (e) { saveErr(e); }
+}
+// Moves that open up when a Pokémon goes from `was` ({species, level}) to `now` (level-up/evolution): new level-up moves
+// it doesn't already know, and TM re-roll moves that just became allowed (power cap, TM Min Level, or new to its species).
+function newMovesFor(was, now) {
+  const before = new Set(knowableMoves(was.species, was.level)), known = new Set([...(now.moves || []), ...(now.tms || [])]);
+  const levelUp = knowableMoves(now.species, now.level).filter(mv => !before.has(mv) && !known.has(mv));
+  const tmBefore = new Set(tmStyleMoves(was.species).filter(mv => { const d = getMove(mv); return d && tmCheck(d, was.level).ok; }));
+  const tms = tmStyleMoves(now.species).filter(mv => { const d = getMove(mv); return d && !known.has(mv) && !tmBefore.has(mv) && tmCheck(d, now.level).ok; });
+  return { levelUp, tms };
+}
+const newMovesNote = m => { const nm = m.newMoves; if (!nm || !(nm.levelUp?.length || nm.tms?.length)) return '';
+  const list = (a, n = 6) => a.slice(0, n).map(esc).join(', ') + (a.length > n ? ` and ${a.length - n} more` : '');
+  return `<div class="newmoves">✨ ${nm.levelUp?.length ? `<b>New moves to learn:</b> ${list(nm.levelUp)}` : ''}${nm.levelUp?.length && nm.tms?.length ? '<br>' : ''}${nm.tms?.length ? `<b>Now allowed as a TM re-roll:</b> ${list(nm.tms)}` : ''}</div>`; };
 async function finishMission(ctx) {
   const { c, mis, cid, misNum, teams } = ctx, b = mis.battle, N = misNum, L = N + 1;
   if (!confirm(`Finish Mission ${N}? Everyone's Pokémon go to level ${L}, catches join their teams, and players get their re-rolls and EVs.`)) return;
   const kosBy = {}; for (const k of b.kos || []) kosBy[k.by] = (kosBy[k.by] || 0) + 1;
   try {
+    // Snapshot every team first, so Restart mission can undo the level-ups, EVs, catches and re-rolls
+    if (!mis.snapshot) await DB.update(MISSION(cid, N), { snapshot: { at: Date.now(), takenFinals: c.takenFinals || [], teams: Object.fromEntries((c.players || []).map(p => [p.id, teams[p.id] || []])) } });
     for (const p of c.players || []) {
       const team = (teams[p.id] || []).map(m => {
         if (m.step !== 'done') return m;
         const n = { ...m };
         if ((n.level || 1) < L) {
+          const was = { species: n.species, level: n.level || 1 };
           const evNow = STAT_KEYS.reduce((a, k) => a + (n.evs?.[k] || 0), 0) + (n.evPending || 0);
           n.evPending = (n.evPending || 0) + Math.max(0, Math.min(10 * (L - n.level), 510 - evNow));
           n.level = L;
           const sp = formAtLevel(n.final, L);
           if (sp && sp !== n.species) { n.evolvedFrom = n.species; n.species = sp; n.ability = abilityBySlot(sp, n.abilitySlot) || n.ability; } else delete n.evolvedFrom;
+          const nm = newMovesFor(was, n);
+          if (nm.levelUp.length || nm.tms.length) {   // add to anything the player hasn't looked at yet
+            const old = n.newMoves || { levelUp: [], tms: [] };
+            n.newMoves = { levelUp: [...new Set([...old.levelUp, ...nm.levelUp])], tms: [...new Set([...old.tms, ...nm.tms])] };
+          }
         }
-        const k = kosBy['p_' + m.uid] || 0;
-        n.rerolls = k ? { mission: N, left: k } : null; n.reroll = null;
+        const k = kosBy['p_' + m.uid] || 0, left = (m.rerolls?.left || 0) + k;   // unused re-rolls carry over
+        n.rerolls = left ? { mission: N, left } : null; if (!n.reroll) n.reroll = null;
         return n;
       });
       for (const ct of (b.catches || []).filter(x => x.pid === p.id)) {
@@ -2727,6 +2791,9 @@ async function finishMission(ctx) {
 }
 const abilityBySlot = (species, slot) => { const p = getPokemon(species); if (!p) return null; return slot === 'H' ? (p.hidden || p.abilities?.[0]) : slot === '2' ? (p.abilities?.[1] || p.abilities?.[0]) : p.abilities?.[0]; };
 
+// What a player still has to do after a mission (all of it carries over)
+const todoFor = t => { const catches = t.filter(m => m.step !== 'done').length, rr = t.reduce((a, m) => a + (m.rerolls?.left || 0) + (m.reroll ? 1 : 0), 0), ev = t.reduce((a, m) => a + (m.evPending || 0), 0);
+  return [catches && `${catches} catch${catches > 1 ? 'es' : ''} to set up`, rr && `${rr} re-roll${rr > 1 ? 's' : ''} left`, ev && `${ev} EVs to place`].filter(Boolean); };
 // ---- Player: after the mission (re-rolls, EVs, moves, catches) ----
 function afterMissionPlayer(el, ctx) {
   const { cid, misNum, pid, team, c } = ctx;
@@ -2741,9 +2808,9 @@ function afterMissionPlayer(el, ctx) {
     ${team.filter(m => m.step === 'done').map(m => `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;--gap:6px">
       <div><b>${esc(m.species)}</b> <span class="muted">Lv ${m.level}</span>${m.evolvedFrom ? ` <span class="pill up">Evolved from ${esc(m.evolvedFrom)}!</span>` : ''}</div>
       <div class="row" style="gap:8px">
-        ${m.rerolls?.mission === N && (m.rerolls.left > 0 || m.reroll) ? `<button class="btn small primary" data-rr="${m.uid}">🎲 Re-roll${m.reroll ? ' (result waiting)' : ` (${m.rerolls.left} left)`}</button>` : ''}
+        ${m.rerolls?.left > 0 || m.reroll ? `<button class="btn small primary" data-rr="${m.uid}">🎲 Re-roll${m.reroll ? ' (result waiting)' : ` (${m.rerolls.left} left)`}</button>` : ''}
         ${m.evPending ? `<button class="btn small primary" data-ev="${m.uid}">Place ${m.evPending} EVs</button>` : ''}
-        <button class="btn small" data-mvs="${m.uid}">Moves</button><button class="btn small" data-pln="${m.uid}">Plan</button></div>${planSummary(m)}</div></div>`).join('')}
+        <button class="btn small" data-mvs="${m.uid}">Moves${m.newMoves ? ' <span class="newdot"></span>' : ''}</button><button class="btn small" data-pln="${m.uid}">Plan</button></div>${newMovesNote(m)}${planSummary(m)}</div></div>`).join('')}
     <div class="muted" style="font-size:.9rem">The DM starts the next mission when everyone's ready.</div></div>`;
   el.querySelectorAll('[data-rr]').forEach(x => x.onclick = () => rerollModal(team.find(m => m.uid === x.dataset.rr), saveMon, mode, N));
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.ev), saveMon));
@@ -2907,11 +2974,12 @@ function evModal(m, saveMon) {
   });
 }
 function movesModal(m, saveMon) {
-  const all = movesKnown(m);
+  const all = movesKnown(m), fresh = new Set(m.newMoves?.levelUp || []), note = newMovesNote(m);
+  if (m.newMoves) saveMon(m.uid, { newMoves: null });   // seen
   let pick = [...(m.moves || [])];
   openModal((card, close, redraw) => {
-    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}'s moves</h2><div class="muted">Any 4 of the level-up moves it knows at level ${m.level}${(m.tms || []).length ? ', plus its TMs' : ''}.</div>
-      <div class="stack" style="max-height:55vh;overflow:auto">${all.map(mv => `<button class="opt wide ${pick.includes(mv) ? 'on' : ''}" data-m="${esc(mv)}">${moveCardHTML(mv, (m.tms || []).includes(mv) ? '<span class="pill">TM</span>' : '')}</button>`).join('')}</div>
+    card.innerHTML = `<h2 style="margin:0">${esc(m.species)}'s moves</h2><div class="muted">Any 4 of the level-up moves it knows at level ${m.level}${(m.tms || []).length ? ', plus its TMs' : ''}.</div>${note}
+      <div class="stack" style="max-height:55vh;overflow:auto">${all.map(mv => `<button class="opt wide ${pick.includes(mv) ? 'on' : ''}" data-m="${esc(mv)}">${moveCardHTML(mv, ((m.tms || []).includes(mv) ? '<span class="pill">TM</span>' : '') + (fresh.has(mv) ? '<span class="pill up">New</span>' : ''))}</button>`).join('')}</div>
       <div class="row"><span class="muted">${pick.length}/4</span><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok ${pick.length ? '' : 'disabled'}>Save</button></div>`;
     card.querySelectorAll('[data-m]').forEach(x => x.onclick = () => { const mv = x.dataset.m; if (pick.includes(mv)) pick = pick.filter(y => y !== mv); else if (pick.length < 4) pick.push(mv); else return toast('4 moves max'); redraw(); });
     card.querySelector('[data-x]').onclick = close;
@@ -3002,13 +3070,16 @@ function renderBoard(svg, o, onTap) {
     const [x, y] = xy(k), two = inits[pid].length > 1;
     h += `<g class="tok${pid === o.mine ? ' mine' : ''}"><polygon points="${poly(x, y, S * .9)}" fill="${o.colorOf(pid)}"/><text x="${x}" y="${y + .3}" style="font-size:${two ? 6.5 : 9}px">${esc(inits[pid])}</text></g>`;
   }
+  let badges = '';   // status tags go on top of everything
   for (const u of o.units || []) {   // battle tokens: the Pokémon's picture, a ring in its trainer's color, and an HP bar
     if (!u.key || u.key === 'table') continue;
     const [x, y] = xy(u.key), w = S * 1.5;
     h += `<g class="unit${u.mine ? ' mine' : ''}"><polygon points="${poly(x, y, S * .9)}" class="ubg" style="stroke:${u.ring}"/>${u.img ? `<image href="${u.img}" x="${x - w / 2}" y="${y - w / 2 - 1}" width="${w}" height="${w}"/>` : ''}
       <rect x="${x - 6}" y="${y + 5.6}" width="12" height="1.8" rx=".9" class="hpbg"/><rect x="${x - 6}" y="${y + 5.6}" width="${(12 * Math.max(0, u.hp)).toFixed(2)}" height="1.8" rx=".9" fill="${u.hp > .5 ? 'var(--ok)' : u.hp > .2 ? '#e0a400' : 'var(--bad)'}"/></g>`;
+    if (u.status && STATUS_COLOR[u.status]) badges += `<g class="stbadge"><rect x="${x + 1.2}" y="${y - 9}" width="9" height="4.4" rx="1.4" fill="${STATUS_COLOR[u.status][0]}" stroke="${STATUS_COLOR[u.status][1]}" stroke-width=".35"/><text x="${x + 5.7}" y="${y - 6.75}" fill="${STATUS_COLOR[u.status][1]}">${STATUS_SHORT[u.status]}</text></g>`;
   }
   if (o.selected) { const [x, y] = xy(o.selected); h += `<polygon class="sel" points="${poly(x, y, S * 1.02)}"/>`; }
+  h += badges;
   svg.innerHTML = h;
   svg.onclick = onTap ? e => { const g = e.target.closest('[data-k]'); if (g) onTap(g.dataset.k); } : null;
   svg.classList.toggle('tappable', !!onTap);
