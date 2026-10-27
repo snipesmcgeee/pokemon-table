@@ -137,6 +137,7 @@ function convertWorkbook(wb) {
         total: num(g(r, 'Total')),
         abilities: [clean(g(r, 'Ability 1')), clean(g(r, 'Ability 2'))].filter(Boolean),
         hidden: clean(g(r, 'Hidden Ability')),
+        weight: num(g(r, 'Weight')),   // kg; used by Low Kick, Grass Knot, Heavy Slam, Heat Crash (blank until the column exists)
         evolution: numOrText(g(r, 'Evolution')), realEvolution: clean(g(r, 'Real Evolution')),
         spriteId: clean(g(r, 'Sprite ID')) === null ? null : String(clean(g(r, 'Sprite ID'))),
         customSprite: clean(g(r, 'Custom Sprite'))
