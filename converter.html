@@ -95,7 +95,7 @@ function convertWorkbook(wb) {
   const stamp = new Date().toLocaleString();
 
   // ---- helpers ----
-  const clean = v => (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) ? null : (typeof v === 'string' ? v.trim() : v);
+  const clean = v => (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) ? null : (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : v);   // Excel line breaks (\r\n) → \n
   const num = v => { v = clean(v); if (v === null) return null; const n = Number(v); return isNaN(n) ? null : n; };
   const numOrText = v => { v = clean(v); if (v === null) return null; const n = Number(v); return isNaN(n) ? v : n; };
   function table(name, required) {
@@ -137,13 +137,15 @@ function convertWorkbook(wb) {
         total: num(g(r, 'Total')),
         abilities: [clean(g(r, 'Ability 1')), clean(g(r, 'Ability 2'))].filter(Boolean),
         hidden: clean(g(r, 'Hidden Ability')),
-        weight: num(g(r, 'Weight')),   // kg; used by Low Kick, Grass Knot, Heavy Slam, Heat Crash (blank until the column exists)
+        weight: num(g(r, 'Weight (kg)')) ?? num(g(r, 'Weight')),   // kg; used by Low Kick, Grass Knot, Heavy Slam, Heat Crash, Heavy/Light Metal
+        battleFormOf: clean(g(r, 'Battle Form Of')),   // in-battle form of this Pokémon (e.g. Darmanitan (Zen Mode) → Darmanitan); blank otherwise
         evolution: numOrText(g(r, 'Evolution')), realEvolution: clean(g(r, 'Real Evolution')),
         spriteId: clean(g(r, 'Sprite ID')) === null ? null : String(clean(g(r, 'Sprite ID'))),
         customSprite: clean(g(r, 'Custom Sprite'))
       });
     }
     if (flagged) warnings.push(`Pokedex: ${flagged} row(s) have ${FLAG} in an ID column (expected for game-only or grouped rows)`);
+    for (const p of dex) if (p.battleFormOf && !names.has(p.battleFormOf)) warnings.push(`Pokedex: "${p.name}" is a battle form of "${p.battleFormOf}", which isn't a Display Name`);
     const noSprite = dex.filter(p => !p.spriteId && !p.customSprite).map(p => p.name);
     if (noSprite.length) warnings.push(`No sprite yet (add a Custom Sprite): ${noSprite.join(', ')}`);
     counts.Pokedex = dex.length;
@@ -182,7 +184,8 @@ function spriteFallbackUrl(p, shiny) {
         return { name: m[1].trim(), level: isNaN(lv) ? null : lv };
       });
       for (const s of steps) if (P && !names.has(s.name)) warnings.push(`Lines: "${s.name}" (Final ${g(r, 'Final')}) is not a Pokedex Display Name`);
-      lines.push({ final: numOrText(g(r, 'Final')), name: clean(g(r, 'Final Pokémon')), mission: num(g(r, 'Mission')), path: steps, notes: clean(g(r, 'Notes')) });
+      lines.push({ final: numOrText(g(r, 'Final')), name: clean(g(r, 'Final Pokémon')), mission: num(g(r, 'Mission')), path: steps, notes: clean(g(r, 'Notes')),
+        lockedAbility: clean(g(r, 'Locked Ability')) });   // every Pokémon on this line always has this ability (e.g. Battle Bond on Final 400)
     }
     counts.Lines = lines.length;
     files['lines.js'] = js(`Evolution lines (${lines.length})`, 'LINES_DATA', lines,
@@ -259,8 +262,7 @@ function nextEvolution(final, currentName) {
     return Object.keys(out).length ? out : null;
   };
   function moveEffects(col) {   // col('Header') reads this row's cell
-    const auto = clean(col('Automated'));
-    if (!auto) return null;
+    const auto = clean(col('Automated')) || 'yes';   // the Automated column is retired; the app keeps its own list of what it runs
     const crit = clean(col('Crit Stage')), fixed = clean(col('Fixed Damage')), st = clean(col('Inflicts Status'));
     if (st && !STATUS_CODES[st]) warnings.push(`Moves: unknown status "${st}"`);
     return {
@@ -307,7 +309,6 @@ function nextEvolution(final, currentName) {
     });
     if (M.idx['Shape'] === undefined) warnings.push('Moves tab has no "Shape" column yet, so every move reaches 1 hex (Line 1) in battle.');
     if (badShapes.length) warnings.push(`Moves: can't read Shape (use Line N, Range N, Range N xK, AOE N, AOE N foes, Self, Field): ${badShapes.join(', ')}`);
-    if (M.idx['Automated'] === undefined) warnings.push('Moves tab has no "Automated" column, so move effects will be handled by hand in battle.');
     counts.Moves = moves.length;
     files['moves.js'] = js(`Moves (${moves.length})`, 'MOVES_DATA', moves,
 `const MOVES = {};
