@@ -1403,6 +1403,7 @@ function currentSpeed(u, b) {   // speed after stages, paralysis, and speed abil
     if (boosterStat(b, u) === 'spe') m *= 1.5;
     if (timerOn(b, 'tailwind', u.side)) m *= 2;
     if (timerOn(b, 'swamp', u.side)) m *= .25;
+    if (u.v?.unburden && a === 'Unburden') m *= 2;
   }
   s = Math.floor(s * m);
   if (u.status === 'par' && a !== 'Quick Feet') s = Math.floor(s / 2);
@@ -1452,20 +1453,21 @@ function newUnit(base) {
 }
 function unitFromMon(pid, mon) {
   const stats = statsFor(mon.species, mon.ivs, mon.evs || {}, mon.level, mon.nature);
-  return newUnit({ id: 'p_' + mon.uid, side: 'p', owner: pid, ref: mon.uid, final: mon.final, name: mon.species, level: mon.level, shiny: !!mon.shiny,
-    types: getPokemon(mon.species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ability: mon.ability, moves: mon.moves || [], ivs: mon.ivs || null, sketched: (mon.sketched || []).length });
+  return initPP(newUnit({ id: 'p_' + mon.uid, side: 'p', owner: pid, ref: mon.uid, final: mon.final, name: mon.species, level: mon.level, shiny: !!mon.shiny,
+    types: getPokemon(mon.species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ability: lockedAbility(mon.final) || mon.ability, moves: mon.moves || [], ivs: mon.ivs || null, sketched: (mon.sketched || []).length,
+    calc: { ivs: mon.ivs || {}, evs: mon.evs || {}, nature: mon.nature || null }, ppBonus: mon.ppBonus || {} }));   // calc: to work out battle-form stats
 }
 function unitFromWild(final, level, setup, random = false) {   // random = true when a battle starts (preview uses an even split)
   const species = formAtLevel(final, level);
   const ivs = wildIVs(level, random), evs = wildEVs(level, random);
   const stats = statsFor(species, ivs, evs, level, null);
-  return newUnit({ id: 'w_' + String(final).replace(/\W/g, '_'), side: 'w', owner: 'dm', ref: final, final, name: species, level, shiny: false,
-    types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ivs, evs,
-    ability: setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level) });
+  return initPP(newUnit({ id: 'w_' + String(final).replace(/\W/g, '_'), side: 'w', owner: 'dm', ref: final, final, name: species, level, shiny: false,
+    types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ivs, evs, calc: { ivs, evs, nature: null },
+    ability: lockedAbility(final) || setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level) }));
 }
 
 // ---- The turn meter ----
-const onField = (b, u) => u.out && !u.fainted && (b.noMap || !!u.pos);
+const onField = (b, u) => u.out && !u.fainted && !u.inside && (b.noMap || !!u.pos);   // inside = Tatsugiri riding in Dondozo (Commander)
 // Advance the meters to the next Pokémon to act (ties: higher speed → player before wild → hidden initiative list).
 function pickNext(b) {
   const act = Object.values(b.units).filter(u => onField(b, u));
@@ -1476,9 +1478,10 @@ function pickNext(b) {
   const k = Math.max(0, Math.min(...elig.map(need)));
   act.forEach(u => u.meter += k);
   const ready = elig.filter(u => need(u) <= 0);
-  ready.sort((a, b2) => (b2.v?.afterYou ? 1 : 0) - (a.v?.afterYou ? 1 : 0) || currentSpeed(b2, b) - currentSpeed(a, b) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
+  const stall = x => abil(b, x) === 'Stall' ? 1 : 0;   // Stall: always last among Pokémon whose meters fill together
+  ready.sort((a, b2) => (b2.v?.afterYou ? 1 : 0) - (a.v?.afterYou ? 1 : 0) || stall(a) - stall(b2) || currentSpeed(b2, b) - currentSpeed(a, b) || (a.side === b2.side ? 0 : a.side === 'p' ? -1 : 1) || b.init.indexOf(a.id) - b.init.indexOf(b2.id));
   const win = ready[0];
-  if (ready.length > 1 && currentSpeed(ready[1], b) === currentSpeed(win, b) && ready[1].side === win.side) {
+  if (ready.length > 1 && currentSpeed(ready[1], b) === currentSpeed(win, b) && ready[1].side === win.side && stall(ready[1]) === stall(win)) {
     b.init = [...b.init.filter(id => id !== win.id), win.id];   // won a tie on the hidden list → goes to the bottom
   }
   win.meter = 0; if (win.v?.afterYou) delete win.v.afterYou;
@@ -1491,8 +1494,8 @@ function upcoming(b, n) {   // preview of the next n turns (doesn't change the r
   while (out.length < n) { const u = pickNext(sim); if (!u) break; out.push(u.id); }
   return out;
 }
-const needsPlacement = b => Object.values(b.units).filter(u => u.out && !u.fainted && !u.pos && !b.noMap);
-const blocked = b => !b.started || b.over || needsPlacement(b).length > 0 || (b.needs || []).length > 0;
+const needsPlacement = b => Object.values(b.units).filter(u => u.out && !u.fainted && !u.pos && !u.inside && !b.noMap);
+const blocked = b => !b.started || b.over || needsPlacement(b).length > 0 || (b.needs || []).length > 0 || (b.choices || []).length > 0 || pendingPicks(b).length > 0;
 function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is waiting
   b.turn = null;
   if (blocked(b)) return;
@@ -1506,7 +1509,7 @@ function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is w
     ab(u).loaf = true;
   }
 }
-const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-60); };
+const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-60); markSeen(b, msg); };
 const sideName = (b, u) => u.side === 'w' ? 'wild' : (b.names?.[u.owner] || 'player');
 
 // End of turn: burn and poison damage, then the next turn.
@@ -1524,8 +1527,10 @@ function finishTurn(b) {
       if (d) { d = Math.min(u.hp, d); u.hp -= d; blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) faint(b, u, null); }
     }
     endOfTurnEffects(b, u);
+    stage11EndTurn(b, u);
   }
   if (u && !bonusTurn) { tickField(b, u); tickTimers(b, u); }
+  weatherForms(b); commanderCheck(b); fieldUnits(b).forEach(x => checkConsumables(b, x));
   if (b.bonus) {   // Instruct: the target takes its extra action now
     const bo = b.bonus, x = b.units[bo.id]; delete b.bonus;
     if (x && onField(b, x) && !b.over) { b.turn = { id: x.id, step: 'act', roll: null, forced: bo.move, bonus: true }; blog(b, `— ${x.name} takes an extra action (Instruct)`); return; }
@@ -1535,6 +1540,11 @@ function finishTurn(b) {
 // A Pokémon faints: KO credit, catch, and who must send out a replacement.
 function faint(b, v, killer) {
   const bond = v.v?.destinyBond;
+  restoreIllusion(b, v); revertForm(b, v);   // it faints as its real self (catches record the real species)
+  if (v.v?.grudge && b.curMove && b.curMove.by !== v.id && b.units[b.curMove.by]?.side !== v.side) {   // Grudge: the move that knocked it out loses all its PP
+    const k = b.units[b.curMove.by]; if (k && ppOf(k, b.curMove.name) !== Infinity) { k.pp[b.curMove.name] = 0; blog(b, `${v.name}'s Grudge: ${k.name}'s ${b.curMove.name} lost all its PP!`); }
+  }
+  if (v.v?.hosting) commanderRelease(b, v);
   v.fainted = true; v.out = false; v.pos = null; v.hp = 0; v.status = null;
   blog(b, `${v.name} fainted!`);
   note(b, { k: 'faint', to: v.id, side: v.side, owner: v.owner });
@@ -1684,6 +1694,7 @@ function setWeather(b, kind, setter, strong = false) {
   b.weather = { kind, left: strong ? null : 5, setter: setter.id, side: setter.side, owner: setter.owner };
   blog(b, `${WEATHER_NAME[kind]} began${strong ? '' : ` (lasts 5 of ${setter.name}'s turns)`}.`);
   if (kind === 'snow' || kind === 'hail') Object.values(b.units).forEach(x => { if (x.ab) x.ab.iceFaceBroken = false; });
+  weatherForms(b);
   return true;
 }
 function setTerrain(b, kind, setter) {
@@ -1717,7 +1728,7 @@ const abil = (b, u) => {
 const MOLD = ['Mold Breaker', 'Teravolt', 'Turboblaze'];
 const UNBREAKABLE = new Set(['Shadow Shield', 'Prism Armor', 'Full Metal Body', 'Comatose']);
 // The defender's ability as the attacker sees it (Mold Breaker ignores most of them).
-const defAb = (b, att, def) => { const a = abil(b, def); return a && att && att.id !== def.id && MOLD.includes(abil(b, att)) && !UNBREAKABLE.has(a) ? null : a; };
+const defAb = (b, att, def) => { const a = abil(b, def); return a && att && att.id !== def.id && (MOLD.includes(abil(b, att)) || att.v?.myc) && !UNBREAKABLE.has(a) ? null : a; };   // v.myc: Mycelium Might status move
 const ab = u => (u.ab = u.ab || {});   // per-battle ability memory (Flash Fire boost, Disguise used, …)
 const stat = (u, k) => Math.floor(u.stats[k] * stageMult(u.stages[k] || 0));
 const highestStat = u => ['atk', 'def', 'spa', 'spd', 'spe'].reduce((best, k) => stat(u, k) > stat(u, best) ? k : best, 'atk');
@@ -1725,14 +1736,14 @@ const boosterStat = (b, u) => { const a = abil(b, u); return (a === 'Protosynthe
 function mimicry(b, u) {
   if (abil(b, u) !== 'Mimicry') return;
   const t = { electric: 'Electric', grassy: 'Grass', misty: 'Fairy', psychic: 'Psychic' }[terrainNow(b)];
-  u.types = t ? [t] : (getPokemon(u.name)?.types || u.types);
+  u.types = t ? [t] : baseTypes(u);
 }
 const heal = (u, amt) => { if (u.v?.healBlock > 0) return 0; const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(amt))); u.hp += h; return h; };
 const hurt = (b, u, amt, why, killer = null) => {
   if (abil(b, u) === 'Magic Guard' || u.fainted) return 0;
   const d = Math.min(u.hp, Math.max(1, Math.floor(amt))); u.hp -= d;
   blog(b, `${u.name} lost ${d} HP (${why}).`);
-  if (u.hp === 0) faint(b, u, killer);
+  if (u.hp === 0) faint(b, u, killer); else checkConsumables(b, u);
   return d;
 };
 
@@ -1777,6 +1788,7 @@ function canGetStatus(u, st, move, b, src) {
   if (!b) return true;
   const a = defAb(b, src, u);
   if ((STATUS_BLOCK[a] || []).includes(st)) return false;
+  if (a === 'Shields Down' && trueName(u) === 'Minior (Meteor)') return false;
   if (a === 'Leaf Guard' && sunFor(b)) return false;
   if (st === 'slp' && allies(b, u).some(x => abil(b, x) === 'Sweet Veil')) return false;
   if (st === 'slp' && fieldUnits(b).some(x => x.v?.uproar)) return false;
@@ -1794,6 +1806,7 @@ function giveStatus(b, u, st, src, sleepTurns) {
   if (src && src.id !== u.id && abil(b, u) === 'Synchronize' && ['brn', 'par', 'psn', 'tox'].includes(st) && canGetStatus(src, st, null, b, u)) {
     blog(b, `${u.name}'s Synchronize passes it back!`); giveStatus(b, src, st, null);
   }
+  if (!cudChewRecure(b, u, st)) checkConsumables(b, u);
 }
 
 // The move as this Pokémon uses it right now: type and power after abilities, weather and terrain.
@@ -1813,7 +1826,9 @@ function moveFor(b, u, move) {
   return mv;
 }
 const makesContact = (b, u, mv) => mv.tags?.includes('Contact') && abil(b, u) !== 'Long Reach';
-const hasSecondary = mv => { const fx = mv.fx; return !!fx && ((fx.chance != null && fx.chance < 100 && mv.category !== 'Status') || (fx.userChance != null && fx.userChance < 100) || fx.auto === 'partial'); };
+// Sheer Force: moves with an added chance (status, stat change, flinch or confusion) that it gives up for 1.3× power
+const hasSecondary = mv => { const fx = mv.fx || {}, cc = confuseChance(mv);
+  return (fx.chance != null && fx.chance < 100 && mv.category !== 'Status') || (fx.userChance != null && fx.userChance < 100) || (mv.category !== 'Status' && (flinchChance(mv) > 0 || (cc > 0 && cc < 100))) || ['Tri Attack', 'Dire Claw'].includes(mv.name); };
 
 // Abilities that stop a move outright (and what they do instead). Returns a message, or null.
 function abilityBlocks(b, att, def, mv) {
@@ -1896,6 +1911,8 @@ function calcDamage({ b, att, def, move, roll, crit, spread, x: X = {} }) {
     if (aa === 'Tough Claws' && contact) pw(1.3, aa);
     if (aa === 'Sheer Force' && hasSecondary(mv)) pw(1.3, aa);
     if (aa === 'Punk Rock' && mv.tags?.includes('Sound')) pw(1.3, aa);
+    if (aa === 'Rivalry' && b.rival?.[att.id + '>' + def.id] != null) pw(b.rival[att.id + '>' + def.id] ? 1.25 : .75, aa);
+    if (aa === 'Analytic' && def.id !== att.id && actedSince(b, att, def)) pw(1.3, aa);
     if (aa === 'Sand Force' && w === 'sand' && ['Rock', 'Ground', 'Steel'].includes(mv.type)) pw(1.3, aa);
     if (ab(att).charged && mv.type === 'Electric') pw(2, 'Charged');
     if (att.v?.helped) pw(1.5, 'Helping Hand');
@@ -2019,6 +2036,8 @@ function enterField(b, u) {
   ab(u).entered = true;
   const a = abil(b, u), say = m => blog(b, `${u.name}'s ${a}: ${m}`);
   mimicry(b, u);
+  stage11Entry(b, u);   // battle forms, Imposter, Frisk, Anticipation, Forewarn, Commander
+  if (!onField(b, u)) return;
   if (a === 'Intimidate') for (const f of foes(b, u)) {
     const fa = defAb(b, u, f);
     if (['Oblivious', 'Own Tempo', 'Inner Focus', 'Scrappy'].includes(fa)) { blog(b, `${f.name}'s ${fa} ignores Intimidate.`); continue; }
@@ -2043,24 +2062,29 @@ function enterField(b, u) {
   if (a === 'Trace') { const f = foes(b, u).find(f2 => !NO_COPY.has(abil(b, f2))); if (f) { ab(u).now = abil(b, f); say(`copied ${f.name}'s ${ab(u).now}`); ab(u).entered = false; enterField(b, u); } }
   if (['Air Lock', 'Cloud Nine'].includes(a) && b.weather) say('the weather has no effect while it is out');
   if (a === 'Neutralizing Gas') say('other abilities stop working while it is out');
-  if (['Pressure', 'Mold Breaker', 'Teravolt', 'Turboblaze', 'Unnerve', 'Frisk', 'Anticipation', 'Forewarn', 'Dark Aura', 'Fairy Aura', 'Aura Break', 'Comatose'].includes(a)) say('announced');
+  if (['Pressure', 'Mold Breaker', 'Teravolt', 'Turboblaze', 'Unnerve', 'Dark Aura', 'Fairy Aura', 'Aura Break', 'Comatose'].includes(a)) say('announced');
   for (const x of fieldUnits(b)) if (x.id !== u.id && abil(b, x) === 'Opportunist') { /* only copies boosts */ }
 }
 const NO_COPY = new Set(['Trace', 'Imposter', 'Illusion', 'Multitype', 'RKS System', 'Stance Change', 'Schooling', 'Zen Mode', 'Shields Down', 'Battle Bond', 'Power Construct', 'Disguise', 'Ice Face', 'Gulp Missile', 'Hunger Switch', 'Commander', 'Zero to Hero', 'Neutralizing Gas', 'Power of Alchemy', 'Receiver', 'Flower Gift', 'Forecast', 'Comatose', 'Tera Shift', 'As One (Glastrier)', 'As One (Spectrier)']);
 // A Pokémon leaves the field by switching out.
 function leaveField(b, u) {
   const a = abil(b, u);
+  if (a === 'Zero to Hero' && baseNameOf(u) === 'Palafin (Zero)') onceOf(u).hero = true;   // Hero for the rest of the battle
+  if (u.v?.hosting) commanderRelease(b, u);
   if (a === 'Natural Cure' && u.status) { blog(b, `${u.name}'s Natural Cure healed its ${STATUS_NAME[u.status].toLowerCase()} status.`); u.status = null; }
   if (a === 'Regenerator' && u.hp < u.maxHp && !u.fainted) blog(b, `${u.name}'s Regenerator restores ${heal(u, u.maxHp / 3)} HP.`);
   u.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); if (u.status === 'tox') u.tox = 1;
   const keep = {};
   for (const k of ['swordUsed', 'shieldUsed', 'syrupUsed', 'disguiseBroken', 'iceFaceBroken']) if (ab(u)[k]) keep[k] = true;   // once-per-battle flags survive a switch
-  u.ab = keep; dropVolatiles(b, u); u.types = getPokemon(u.name)?.types || u.types;
+  u.ab = keep; dropVolatiles(b, u); revertForm(b, u); u.types = baseTypes(u);
+  if (!u.fainted) applyIllusion(b, u);   // back on the bench: its disguise is ready again
 }
 // Trapping abilities stop a switch.
 function trappedBy(b, u) {
+  if (u.v?.hosting) return 'Tatsugiri is riding inside it (Commander)';
   if (u.types.includes('Ghost')) return null;
   const mt = moveTrap(b, u); if (mt) return mt;
+  if (abil(b, u) === 'Run Away') return null;   // this game: foes' traps can't hold it
   for (const f of foes(b, u)) {
     const a = abil(b, f);
     if (a === 'Shadow Tag' && abil(b, u) !== 'Shadow Tag') return `${f.name}'s Shadow Tag`;
@@ -2127,6 +2151,7 @@ function onKO(b, killer, victim) {
     if (['Moxie', 'Chilling Neigh', 'As One (Glastrier)'].includes(a)) blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { atk: 1 }, b, killer)}`);
     if (['Grim Neigh', 'As One (Spectrier)'].includes(a)) blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { spa: 1 }, b, killer)}`);
     if (['Beast Boost', 'Eelevate'].includes(a)) { const k = highestStat(killer); blog(b, `${killer.name}'s ${a}: ${applyStages(killer, { [k]: 1 }, b, killer)}`); }
+    if (a === 'Battle Bond' && killer.side !== victim.side && !onceOf(killer).ash && baseNameOf(killer) === 'Greninja') { onceOf(killer).ash = true; setForm(b, killer, 'Ash-Greninja', true); blog(b, `${killer.name}'s Battle Bond: it became Ash-Greninja!`); }
   }
   for (const x of fieldUnits(b)) if (abil(b, x) === 'Soul-Heart') blog(b, `${x.name}'s Soul-Heart: ${applyStages(x, { spa: 1 }, b, x)}`);
   for (const x of fieldUnits(b)) if (x.side === victim.side && ['Receiver', 'Power of Alchemy'].includes(abil(b, x)) && !NO_COPY.has(victim.ability)) { ab(x).now = victim.ability; blog(b, `${x.name}'s ${x.ability} took on ${victim.ability}.`); }
@@ -2158,23 +2183,8 @@ function endOfTurnAbilities(b, u) {
 }
 
 // Which abilities the app runs. Everything else shows "Not automated" with the reason.
+// (Since Stage 11 every ability has a rule here — the Abilities tab's "This Game" column says what each one does.)
 const ABILITY_NOTES = {
-  // No effect in this game
-  'Run Away': 'none: there is no fleeing in this game', Pickup: 'none: no held items', 'Honey Gather': 'none: no held items', 'Ball Fetch': 'none: no held items',
-  Magician: 'none: no held items', Pickpocket: 'none: no held items', 'Sticky Hold': 'none: no held items', Klutz: 'none: no held items', Gluttony: 'none: no held items (Berries)',
-  Ripen: 'none: no held items (Berries)', Harvest: 'none: no held items (Berries)', 'Cheek Pouch': 'none: no held items (Berries)', 'Cud Chew': 'none: no held items (Berries)',
-  Unburden: 'none: no held items', Symbiosis: 'none: no held items', Unnerve: 'none: no held items (Berries)', Frisk: 'none: no held items', Multitype: 'none: plates are held items', 'RKS System': 'none: memories are held items',
-  Pressure: 'none: PP isn\'t tracked', Anticipation: 'none: information only', Forewarn: 'none: information only',  Rivalry: 'none: Pokémon have no gender here', Imposter: 'none: Ditto isn\'t in the game',
-  Prankster: 'none: the turn meter has no priority', 'Gale Wings': 'none: the turn meter has no priority', Triage: 'none: the turn meter has no priority', 'Quick Draw': 'none: the turn meter has no priority',
-  Stall: 'none: the turn meter has no move order', Analytic: 'none: the turn meter has no move order', 'Queenly Majesty': 'none: the turn meter has no priority', Dazzling: 'none: the turn meter has no priority', 'Armor Tail': 'none: the turn meter has no priority',
-  Telepathy: 'none: moves here never hit allies by accident',
-  // Needs something not built yet
-  Illusion: 'no: disguise as another Pokémon isn\'t automated', Commander: 'no: needs a Dondozo ally pairing',
-  'Mycelium Might': 'none: the turn meter has no move order',
-  'Stance Change': 'no: battle forms aren\'t built yet', 'Zen Mode': 'no: battle forms aren\'t built yet', Schooling: 'no: battle forms aren\'t built yet', 'Shields Down': 'no: battle forms aren\'t built yet',
-  'Power Construct': 'no: battle forms aren\'t built yet', 'Battle Bond': 'no: battle forms aren\'t built yet', 'Gulp Missile': 'no: battle forms aren\'t built yet', 'Hunger Switch': 'no: battle forms aren\'t built yet',
-  Forecast: 'no: battle forms aren\'t built yet', 'Zero to Hero': 'no: battle forms aren\'t built yet', 'Tera Shift': 'no: battle forms aren\'t built yet', 'Flower Gift': 'partly: stat boosts in sun work; form change isn\'t built',
-  Disguise: 'partly: blocks the first hit; form change isn\'t built', 'Ice Face': 'partly: blocks the first physical hit; form change isn\'t built'
 };
 // Abilities that started working with the move mechanics (Oct 2026)
 const MECH_ABILITIES = ['Cute Charm', 'Oblivious', 'Own Tempo', 'Inner Focus', 'Steadfast', 'Stench', 'Tangled Feet', 'Aroma Veil', 'Poison Puppeteer', 'Perish Body', 'Cursed Body', 'Toxic Debris', 'Screen Cleaner',
@@ -2182,7 +2192,7 @@ const MECH_ABILITIES = ['Cute Charm', 'Oblivious', 'Own Tempo', 'Inner Focus', '
 const AUTOMATED_ABILITIES = new Set(('Adaptability|Aerilate|Aftermath|Air Lock|Anger Point|Anger Shell|Arena Trap|As One (Glastrier)|As One (Spectrier)|Aura Break|Aura Guard|Bad Dreams|Battery|Battle Armor|Beads of Ruin|Beast Boost|Berserk|Big Pecks|Blaze|Bulletproof|Chilling Neigh|Chlorophyll|Clear Body|Cloud Nine|Color Change|Competitive|Compound Eyes|Contrary|Corrosion|Costar|Cotton Down|Curious Medicine|Dark Aura|Dauntless Shield|Defeatist|Defiant|Delta Stream|Desolate Land|Download|Dragonize|Dragon’s Maw|Drizzle|Drought|Dry Skin|Early Bird|Earth Eater|Eelevate|Effect Spore|Electric Surge|Electromorphosis|Emergency Exit|Fairy Aura|Filter|Fire Mane|Flame Body|Flare Boost|Flash Fire|Flower Veil|Fluffy|Friend Guard|Full Metal Body|Fur Coat|Galvanize|Good as Gold|Gooey|Gorilla Tactics|Grass Pelt|Grassy Surge|Grim Neigh|Guard Dog|Guts|Hadron Engine|Healer|Heatproof|Hospitality|Huge Power|Hustle|Hydration|Hyper Cutter|Ice Body|Ice Scales|Illuminate|Immunity|Innards Out|Insomnia|Intimidate|Intrepid Sword|Iron Barbs|Iron Fist|Justified|Keen Eye|Leaf Guard|Levitate|Libero|Lightning Rod|Limber|Lingering Aroma|Liquid Ooze|Liquid Voice|Long Reach|Magic Guard|Magma Armor|Magnet Pull|Marvel Scale|Mega Launcher|Mega Sol|Merciless|Mimicry|Minus|Mirror Armor|Misty Surge|Mold Breaker|Moody|Motor Drive|Moxie|Multiscale|Mummy|Natural Cure|Neuroforce|Neutralizing Gas|No Guard|Normalize|Opportunist|Orichalcum Pulse|Overcoat|Overgrow|Parental Bond|Pastel Veil|Pixilate|Plus|Poison Heal|Poison Point|Poison Touch|Power Spot|Power of Alchemy|Primordial Sea|Prism Armor|Protean|Protosynthesis|Psychic Surge|Punk Rock|Pure Power|Purifying Salt|Quark Drive|Quick Feet|Rain Dish|Rattled|Receiver|Reckless|Refrigerate|Regenerator|Rock Head|Rocky Payload|Rough Skin|Sand Force|Sand Rush|Sand Spit|Sand Stream|Sand Veil|Sap Sipper|Scrappy|Seed Sower|Serene Grace|Shadow Shield|Shadow Tag|Sharpness|Shed Skin|Sheer Force|Shell Armor|Shield Dust|Simple|Skill Link|Slow Start|Slush Rush|Sniper|Snow Cloak|Snow Warning|Solar Power|Solid Rock|Soul-Heart|Soundproof|Speed Boost|Spicy Spray|Stamina|Static|Steam Engine|Steelworker|Steely Spirit|Storm Drain|Strong Jaw|Sturdy|Super Luck|Supersweet Syrup|Supreme Overlord|Surge Surfer|Swarm|Sweet Veil|Swift Swim|Sword of Ruin|Synchronize|Tablets of Ruin|Tangling Hair|Technician|Tera Shell|Teraform Zero|Teravolt|Thermal Exchange|Thick Fat|Tinted Lens|Torrent|Tough Claws|Toxic Boost|Toxic Chain|Trace|Transistor|Truant|Turboblaze|Unaware|Vessel of Ruin|Victory Star|Vital Spirit|Volt Absorb|Wandering Spirit|Water Absorb|Water Bubble|Water Compaction|Water Veil|Weak Armor|Well-Baked Body|White Smoke|Wimp Out|Wind Power|Wind Rider|Wonder Guard|Wonder Skin').split('|'));
 function abilityStatus(name) {
   if (!name) return { auto: 'none', why: '' };
-  if (MECH_ABILITIES.includes(name)) return { auto: 'yes', why: '' };
+  if (MECH_ABILITIES.includes(name) || STAGE11_ABILITIES.includes(name)) return { auto: 'yes', why: '' };
   if (['Heavy Metal', 'Light Metal'].includes(name)) return HAS_WEIGHT() ? { auto: 'yes', why: '' } : { auto: 'none', why: 'needs Pokémon weights (the Pokedex Weight column)' };
   const note = ABILITY_NOTES[name];
   if (note) { const [k, ...rest] = note.split(': '); return { auto: k, why: rest.join(': ') }; }
@@ -2259,7 +2269,7 @@ const asleep = (b, u) => u.status === 'slp' || abil(b, u) === 'Comatose';
 const healBlocked = u => (u.v?.healBlock || 0) > 0;
 const friendship = u => Math.min(255, 7 * (u.level || 1));
 const weightOf = (b, u) => {   // kg, from the Pokédex Weight column (null until the workbook has it)
-  const w0 = getPokemon(vol(u).transformedInto || u.name)?.weight; if (w0 == null) return null;
+  const w0 = getPokemon(vol(u).transformedInto || trueName(u))?.weight; if (w0 == null) return null;
   let w = w0 - 100 * (vol(u).autotomize || 0); const a = abil(b, u);
   if (a === 'Heavy Metal') w *= 2; if (a === 'Light Metal') w /= 2;
   return Math.max(0.1, w);
@@ -2415,12 +2425,13 @@ function forcedMove(b, u) {
   if (b.turn?.id === u.id && b.turn.forced) return b.turn.forced;
   if (v.charging) return v.charging.move;
   if (v.locked) return v.locked.move;
-  if (v.encore && (u.moves || []).includes(v.encore.move)) return v.encore.move;
+  if (v.encore && (u.moves || []).includes(v.encore.move)) { if (ppOf(u, v.encore.move) > 0) return v.encore.move; delete v.encore; }   // Encore ends when that move runs out of PP
   return null;
 }
 // Why a move can't be picked (empty = it can).
-function moveBlockedWhy(b, u, name) {
+function moveBlockedWhy(b, u, name, ignorePP) {
   const mv = getMove(name), v = vol(u); if (!mv) return 'unknown move';
+  if (!ignorePP && ppOf(u, name) <= 0) return 'No PP left';
   if (v.taunt > 0 && mv.category === 'Status') return 'Taunted: no status moves';
   if (v.disable?.move === name) return 'Disabled';
   if (v.torment && v.lastMove === name) return 'Tormented: not twice in a row';
@@ -2438,7 +2449,8 @@ function moveBlockedWhy(b, u, name) {
 const usableMoves = (b, u) => {
   const f = forcedMove(b, u); if (f) return [f];
   const ms = (u.moves || []).filter(m => !moveBlockedWhy(b, u, m));
-  return b.turn?.id === u.id && b.turn.sleepAct ? ms.filter(m => ['Snore', 'Sleep Talk'].includes(m)) : ms;
+  if (b.turn?.id === u.id && b.turn.sleepAct) return ms.filter(m => ['Snore', 'Sleep Talk'].includes(m));
+  return ms.length ? ms : ['Struggle'];   // nothing it can use (no PP, Taunt, Disable …): it struggles
 };
 
 // ---- Start of a Pokémon's turn ----
@@ -2447,13 +2459,14 @@ function beginTurn(b, u) {
   const v = vol(u);
   b.turnNo = (b.turnNo || 0) + 1; u.prevTurn = u.curTurn || 0; u.curTurn = b.turnNo; v.turns = (v.turns || 0) + 1;
   // Effects that last "until the user's next turn"
-  for (const k of ['protect', 'guard', 'followMe', 'ragePowder', 'magicCoat', 'snatch', 'destinyBond', 'glaiveRush', 'fairyLock', 'ionized', 'endure', 'spotlit', 'quickGuarded']) delete v[k];
+  for (const k of ['protect', 'guard', 'followMe', 'ragePowder', 'magicCoat', 'snatch', 'destinyBond', 'glaiveRush', 'fairyLock', 'ionized', 'endure', 'spotlit', 'quickGuarded', 'grudge']) delete v[k];
   if (v.roost) { u.types = v.roost; delete v.roost; }
   for (const x of Object.values(b.units)) if (x.v?.spotlight === u.id) delete x.v.spotlight;
   if (v.lockOn && v.lockOn.left-- <= 0) delete v.lockOn;
   // Future Sight / Doom Desire land at the start of the user's 2nd turn afterward (damage roll by the app)
   for (const f of [...(b.future || [])]) if (f.by === u.id && --f.left <= 0) { b.future = b.future.filter(x => x !== f); landFuture(b, f); }
   if (u.fainted) return false;
+  if (abil(b, u) === 'Tactical Type') tacticalType(b, u);
   if (v.recharge) { delete v.recharge; blog(b, `${u.name} must recharge.`); return false; }
   if (v.flinchSkip) { delete v.flinchSkip; blog(b, `${u.name} is still flinching and loses its turn.`); if (abil(b, u) === 'Steadfast') blog(b, `${u.name}'s Steadfast: ${applyStages(u, { spe: 1 }, b, u)}`); return false; }
   if (u.status === 'slp' && fieldUnits(b).some(x => x.v?.uproar)) { u.status = null; u.slp = 0; blog(b, `The uproar woke ${u.name} up!`); }
@@ -2536,6 +2549,7 @@ function dropVolatiles(b, u) {
 function moveTrap(b, u) {
   if (u.types.includes('Ghost')) return null;
   const v = vol(u);
+  if (abil(b, u) === 'Run Away') return v.noRetreat ? 'No Retreat' : v.ingrain ? 'its roots' : null;   // only its own moves hold it
   if (v.bound) return v.bound.move;
   if (v.trappedBy && b.units[v.trappedBy] && onField(b, b.units[v.trappedBy])) return 'it can\'t escape';
   if (v.octolock) return 'Octolock';
@@ -2628,7 +2642,9 @@ function fixedFor(b, u, t, base) {
 }
 // The move's type as used (null = unchanged)
 function typeFor(b, u, base) {
-  const n = u.name || '';
+  const n = trueName(u) || '';
+  if (base.name === 'Struggle') return '???';   // typeless
+  if (['Judgment', 'Multi-Attack'].includes(base.name) && u.typePick) return u.typePick;   // Multitype / RKS System pick
   switch (base.name) {
     case 'Hidden Power': return hiddenPowerType(u);
     case 'Revelation Dance': return u.types[0];
@@ -2724,7 +2740,7 @@ async function forceOut(env, u, t, base) {
   const b = env.b; if (t.fainted || !onField(b, t)) return;
   if (abil(b, t) === 'Suction Cups' || t.v?.ingrain) { blog(b, `${t.name} is anchored in place${abil(b, t) === 'Suction Cups' ? ' (Suction Cups)' : ' by its roots'}.`); return; }
   if (t.v?.sub && !bypassesSub(b, u, base)) return;
-  const bench = benchOf(b, t);
+  const bench = t.v?.hosting ? [] : benchOf(b, t);   // Commander: Dondozo can't be dragged out
   const pick = await askChoice({ title: `${base.name}: ${t.name}`, text: 'Force it to switch, or knock it back 4 hexes?',
     options: [{ key: 'switch', label: 'Force a switch', note: bench.length ? 'a random benched Pokémon comes in' : 'no one on its bench', disabled: !bench.length }, { key: 'push', label: 'Knock it back 4 hexes', disabled: b.noMap }],
     auto: env.auto ? (bench.length ? 'switch' : 'push') : null });
@@ -2776,6 +2792,20 @@ async function runMove(env, u, base, targetIds, o = {}) {
   }
   if (notAuto && !env.auto && !o.called && !confirm(`${name} isn't automated (${auto.why || 'custom rule'}).\n\nRoll accuracy and damage with its listed power, then apply the rest by hand?`)) return 'stop';
   blog(b, `${u.name} used ${name}!${o.called ? ` (called by ${o.called})` : ''}`); u.lastCat = base.category;
+  b.curMove = { by: u.id, name };
+  // PP: paid once per use (not by called, bounced, snatched or Dancer moves, or the 2nd turn of a charging or locked-in move). Pressure: +1 per foe it aims at.
+  const contin = v.charging?.move === name || (v.locked?.move === name && name !== 'Bide') || (name === 'Bide' && v.bide);
+  if (!o.called && !o.bounced && !o.snatched && !o.dancer && !contin && name !== 'Struggle') {
+    if (ppOf(u, name) <= 0) { blog(b, `But ${name} has no PP left!`); return done(false); }
+    const press = (targetIds || []).map(id => b.units[id]).filter(t => t && t.side !== u.side && abil(b, t) === 'Pressure').length;
+    spendPP(u, name, 1 + press);
+  }
+  // Priority as this game counts it (abilities included), worked out once for the whole move
+  if (o.pri == null) {
+    o.pri = o.called ? (base.priority || 0) : effPriority(b, u, base);
+    if (!o.called && aa === 'Quick Draw' && o.pri <= 0 && await chanceRoll(env, 30, 'Quick Draw: counts as priority')) { o.pri = 1; blog(b, `${u.name}'s Quick Draw: it moved first!`); }
+  }
+  if (aa === 'Mycelium Might' && base.category === 'Status') v.myc = true;   // ignores the target's ability
   if (aa === 'Gorilla Tactics') ab(u).locked = name;
   if (['Protean', 'Libero'].includes(aa) && !ab(u).protUsed) { const tp = typeFor(b, u, base) || moveFor(b, u, base).type; if (u.types.join() !== tp) { u.types = [tp]; blog(b, `${u.name}'s ${aa} made it ${tp} type.`); } ab(u).protUsed = true; }
 
@@ -2805,6 +2835,7 @@ async function runMove(env, u, base, targetIds, o = {}) {
     if (!skip) {
       if (timerOn(b, 'gravity') && GRAVITY_BANNED.has(name)) { blog(b, 'But it failed (Gravity).'); return done(false); }
       v.charging = { move: name, at: b.turnNo || 0 };
+      if (name === 'Dive') gulp(b, u);
       if (tt.boost) blog(b, `${u.name}: ${applyStages(u, tt.boost, b, u)}.`);
       const say = { air: 'flew up high', under: 'dug underground', water: 'dove underwater', gone: 'vanished' }[SEMI_INVULN[name]];
       blog(b, say ? `${u.name} ${say}! It strikes on its next turn.` : tt.focus ? `${u.name} is tightening its focus — if it's hit before its next turn, the punch fails.`
@@ -2822,7 +2853,7 @@ async function runMove(env, u, base, targetIds, o = {}) {
 
   // ---- Checks that make the move fail ----
   const T0 = b.units[targetIds?.[0]];
-  let fail = !o.called && !o.snatched && !o.bounced && !charged && forcedMove(b, u) !== name ? moveBlockedWhy(b, u, name) : '';
+  let fail = !o.called && !o.snatched && !o.bounced && !charged && forcedMove(b, u) !== name && name !== 'Struggle' ? moveBlockedWhy(b, u, name, true) : '';
   if (PROTECT_LIKE.has(name)) {
     const n = v.protectChain || 0;
     if (n > 0 && !(await chanceRoll(env, Math.floor(100 / 3 ** n), `${name} used again in a row`))) fail = 'it failed (used in a row)';
@@ -2830,8 +2861,8 @@ async function runMove(env, u, base, targetIds, o = {}) {
   if (name === 'Ally Switch') { const n = v.allySwitchChain || 0; if (n > 0 && !(await chanceRoll(env, Math.floor(100 / 3 ** n), 'Ally Switch again in a row'))) fail = 'it failed (used in a row)'; }
   if (['Sucker Punch', 'Thunderclap'].includes(name) && T0 && !since(b, u).some(e => e.k === 'move' && e.by === T0.id && e.cat !== 'Status')) fail = `${T0.name} hasn't attacked since ${u.name}'s last turn`;
   if (name === 'Upper Hand' && T0 && !since(b, u).some(e => e.k === 'move' && e.by === T0.id && e.pri > 0)) fail = `${T0.name} hasn't used a priority move since ${u.name}'s last turn`;
-  if (name === 'Dark Void' && u.name !== 'Darkrai' && !/^Darkrai/.test(u.name)) fail = 'only Darkrai can use it';
-  if (name === 'Hyperspace Fury' && !/Hoopa \(Unbound\)/.test(u.name)) fail = 'only Hoopa Unbound can use it';
+  if (name === 'Dark Void' && !/^Darkrai/.test(trueName(u))) fail = 'only Darkrai can use it';
+  if (name === 'Hyperspace Fury' && !/Hoopa \(Unbound\)/.test(trueName(u))) fail = 'only Hoopa Unbound can use it';
   if (name === 'Aurora Veil' && !snowOrHail(b)) fail = 'it needs snow or hail';
   if (['Spit Up', 'Swallow'].includes(name) && !(v.stockpile > 0)) fail = 'nothing was stockpiled';
   if (name === 'Stockpile' && (v.stockpile || 0) >= 3) fail = "it can't stockpile any more";
@@ -2849,6 +2880,9 @@ async function runMove(env, u, base, targetIds, o = {}) {
   if (name === 'Revival Blessing' && !Object.values(b.units).some(x => x.side === u.side && x.owner === u.owner && x.fainted)) fail = 'no fainted Pokémon to revive';
   if (name === 'Teleport' && !benchOf(b, u).length && b.noMap) fail = 'nowhere to go';
   if (fail) { blog(b, `But ${fail}.`); if (PROTECT_LIKE.has(name)) v.protectChain = 0; return done(false); }
+  if (aa === 'Stance Change' && baseNameOf(u) === 'Aegislash (Shield)') {   // Blade to attack, Shield for King's Shield
+    if (base.category !== 'Status') setForm(b, u, 'Aegislash (Blade)'); else if (name === "King's Shield") setForm(b, u, 'Aegislash (Shield)');
+  }
 
   // ---- Moves that don't aim at another Pokémon ----
   const fieldMove = FIELD_MOVES[name];
@@ -2879,19 +2913,25 @@ async function runMove(env, u, base, targetIds, o = {}) {
   }
   if (name === 'Bide') return bide(env, u, base);
   if (name === 'Synchronoise') targets = targets.filter(t => t.types.some(tp => u.types.includes(tp)) || (blog(b, `${t.name} doesn't share a type with ${u.name}.`), false));
-  if (name === 'Spectral Thief') for (const t of targets) { const up = Object.fromEntries(STAGE_KEYS.filter(k => (t.stages[k] || 0) > 0).map(k => [k, t.stages[k]])); if (Object.keys(up).length) { for (const k in up) t.stages[k] = 0; blog(b, `${u.name} stole ${t.name}'s boosts: ${applyStages(u, up, b, u)}.`); } }
+  if (name === 'Spectral Thief') for (const t of targets) { if (stickyHeld(b, t, u)) { blog(b, `${t.name}'s Sticky Hold keeps its boosts.`); continue; } const up = Object.fromEntries(STAGE_KEYS.filter(k => (t.stages[k] || 0) > 0).map(k => [k, t.stages[k]])); if (Object.keys(up).length) { for (const k in up) t.stages[k] = 0; blog(b, `${u.name} stole ${t.name}'s boosts: ${applyStages(u, up, b, u)}.`); } }
   const spread = !selfMv && targets.length > 1;
   const sheer = aa === 'Sheer Force' && (hasSecondary(base) || flinchChance(base) || confuseChance(base));
   const chanceMult = (aa === 'Serene Grace' ? 2 : 1) * (sideHas(b, u.side, 'rainbow') ? 2 : 1);
   const multi = isMulti(base, targets);
   const dmgMove = base.category !== 'Status' && (base.power || fx.fixed || fixedFor(b, u, targets[0] || u, base) != null || powerFor(b, u, targets[0] || u, base) != null || o.counterDmg) && !(name === 'Pollen Puff' && targets[0]?.side === u.side);
   let anyHit = false, dealtTotal = 0, koCount = 0, firstHit = null, missedAll = true;
-  const ignoreAbilities = ['Photon Geyser'].includes(name) || MOLD.includes(aa);
+  const ignoreAbilities = ['Photon Geyser'].includes(name) || MOLD.includes(aa) || !!v.myc;
+  const pranked = aa === 'Prankster' && base.category === 'Status' && o.pri > (base.priority || 0);
 
   for (let t of targets) {
     if (!t || t.fainted || !onField(b, t)) continue;
     const foeT = t.side !== u.side;
     if (!selfMv && t.id !== u.id) {
+      // This game's ability rules: Telepathy (allies' attacks miss it), Prankster vs Dark types, priority-blocking abilities
+      if (!foeT && dmgMove && defAb(b, u, t) === 'Telepathy') { blog(b, `${t.name} avoids its ally's attack (Telepathy).`); continue; }
+      if (foeT && pranked && t.types.includes('Dark')) { blog(b, `It doesn't affect ${t.name} (Dark types ignore Prankster status moves).`); continue; }
+      const pb = foeT && o.pri > 0 ? priorityBlocker(b, u, t) : null;
+      if (pb) { blog(b, `${pb} blocks the priority move — ${name} failed against ${t.name}.`); continue; }
       // Magic Coat / Magic Bounce bounce reflectable status moves back
       if (REFLECTABLE.has(name) && (t.v?.magicCoat || defAb(b, u, t) === 'Magic Bounce') && !o.bounced) {
         blog(b, `${t.name} bounced ${name} back!`);
@@ -2923,7 +2963,7 @@ async function runMove(env, u, base, targetIds, o = {}) {
       }
       if (foeT && multi && guardedBy(b, t, 'wide') && !NO_PROTECT.has(name)) { blog(b, `Wide Guard protects ${t.name}.`); continue; }
       if (foeT && base.category === 'Status' && guardedBy(b, t, 'crafty') && !NO_PROTECT.has(name)) { blog(b, `Crafty Shield protects ${t.name}.`); continue; }
-      if (foeT && (base.priority || 0) > 0 && guardedBy(b, t, 'quick')) o.quickGuarded = true;
+      if (foeT && o.pri > 0 && guardedBy(b, t, 'quick')) o.quickGuarded = true;
       if (BREAKS_PROTECT.has(name) && t.v?.protect) delete t.v.protect;
       if (name === 'Feint' || name === 'Hyperspace Hole' || name === 'Hyperspace Fury') for (const x of fieldUnits(b)) if (x.side === t.side && x.v?.guard) delete x.v.guard;
       // Abilities that stop the move outright
@@ -2978,7 +3018,14 @@ async function runMove(env, u, base, targetIds, o = {}) {
   if (name === 'Struggle' && !u.fainted) hurt(b, u, u.maxHp / 4, 'Struggle');
   if (['Explosion', 'Self-Destruct', 'Misty Explosion', 'Memento', 'Final Gambit'].includes(name) && !u.fainted && (name !== 'Final Gambit' || anyHit)) { u.hp = 0; faint(b, u, null); }
   if (['Steel Roller', 'Ice Spinner'].includes(name) && anyHit) clearTerrain(b);
+  if (name === 'Relic Song' && anyHit && !u.fainted && !sheer && /^Meloetta/.test(baseNameOf(u))) setForm(b, u, trueName(u) === 'Meloetta (Pirouette)' ? 'Meloetta (Aria)' : 'Meloetta (Pirouette)');
+  if (name === 'Surf' && !u.fainted) gulp(b, u);
+  if (name === 'Order Up' && anyHit && !u.fainted && v.hosting) {   // the Tatsugiri inside decides the boost
+    const tz = trueName(b.units[v.hosting] || {}) || '', k = /Droopy/.test(tz) ? 'def' : /Stretchy/.test(tz) ? 'spe' : 'atk';
+    blog(b, `Order Up (${tz}): ${applyStages(u, { [k]: 1 }, b, u)}.`);
+  }
   await afterMove(env, u, base, { anyHit, dealtTotal, koCount, firstHit, targets, missedAll, dmgMove });
+  fieldUnits(b).forEach(x => checkConsumables(b, x));
   if (auto.auto === 'partial' && !IMPLEMENTED_PARTS.has(name)) blog(b, `Not automated: ${auto.why} — apply by hand if it happens.`);
   if (notAuto) blog(b, `Rest of ${name} isn't automated (${auto.why || 'custom rule'}) — apply by hand.`);
   return done(anyHit || selfMv || !targets.length ? anyHit || selfMv : false);
@@ -2987,6 +3034,7 @@ const crash = (b, u) => { if (!u.fainted && abil(b, u) !== 'Magic Guard') hurt(b
 // What gets remembered after a move (for Encore, Torment, Copycat, Stomping Tantrum …), plus priority → Speed.
 function finishRecord(b, u, base, ok, o) {
   const v = vol(u), name = base.name;
+  delete v.myc; if (b.curMove?.by === u.id) delete b.curMove;
   if (!o.called || o.called === 'Sleep Talk') { v.lastMove = o.called ? o.called : name; }
   if (!o.bounced && !o.snatched) {
     v.used = [...new Set([...(v.used || []), o.called || name])];
@@ -3000,7 +3048,7 @@ function finishRecord(b, u, base, ok, o) {
     if (name !== 'Rage') delete v.rage;
     if (v.electrify) delete v.electrify;
     // Jack's rule: a positive-priority move gives the user +1 Speed, a negative one −1 (Quick Guard blocks the boost)
-    const pri = base.name === 'Grassy Glide' && terrainNow(b) === 'grassy' && grounded(b, u) ? 1 : (base.priority || 0);
+    const pri = o.pri ?? effPriority(b, u, base);
     if (!o.called && !u.fainted && onField(b, u) && pri !== 0 && !o.priDone) {
       o.priDone = true;
       if (pri > 0 && o.quickGuarded) blog(b, `Quick Guard stops ${u.name}'s Speed boost from ${name}.`);
@@ -3014,6 +3062,8 @@ async function dealDamage(env, u, t, base, { spread, o, sheer }) {
   const b = env.b, mis = env.mis, aa = abil(b, u), fx = base.fx || {}, name = base.name, lines = env.lines, da0 = defAb(b, u, t);
   const tp = typeFor(b, u, base) || moveFor(b, u, base).type;
   const mvT = { ...base, type: tp };
+  ensureRival(b, u, t);   // Rivalry's coin flip for this foe (once per battle)
+  const formHit = trueName(t);   // for Gulp Missile
   // Brick Break, Psychic Fangs and Raging Bull smash screens on the target's side first
   if (['Brick Break', 'Psychic Fangs', 'Raging Bull'].includes(name) && effAgainst(b, u, t, mvT) !== 0) for (const k of ['reflect', 'lightscreen', 'auroraveil']) if (timerOn(b, k, t.side)) { removeTimer(b, k, t.side); blog(b, `${name} shattered ${TIMER_NAME[k]}!`); }
   let dmg = 0, crit = false, eff = effAgainst(b, u, t, mvT) ?? 1, n = 1;
@@ -3089,14 +3139,15 @@ async function dealDamage(env, u, t, base, { spread, o, sheer }) {
     return { dealt: 0, crit, sub: true, hits: n };
   }
   const da = defAb(b, u, t);
-  if (dmg > 0 && da === 'Disguise' && !ab(t).disguiseBroken) { ab(t).disguiseBroken = true; dmg = 0; blog(b, `${t.name}'s Disguise took the hit!`); hurt(b, t, t.maxHp / 8, 'its disguise broke'); }
-  if (dmg > 0 && da === 'Ice Face' && x0cat(b, u, t, base) === 'Physical' && !ab(t).iceFaceBroken) { ab(t).iceFaceBroken = true; dmg = 0; blog(b, `${t.name}'s Ice Face took the hit!`); }
+  if (dmg > 0 && da === 'Disguise' && !ab(t).disguiseBroken) { ab(t).disguiseBroken = true; dmg = 0; blog(b, `${t.name}'s Disguise took the hit!`); if (baseNameOf(t) === 'Mimikyu') setForm(b, t, 'Mimikyu (Busted)'); hurt(b, t, t.maxHp / 8, 'its disguise broke'); }
+  if (dmg > 0 && da === 'Ice Face' && x0cat(b, u, t, base) === 'Physical' && !ab(t).iceFaceBroken) { ab(t).iceFaceBroken = true; dmg = 0; blog(b, `${t.name}'s Ice Face took the hit!`); if (baseNameOf(t) === 'Eiscue (Ice Face)') setForm(b, t, 'Eiscue (No Ice Face)'); }
   if (dmg >= t.hp && t.hp === t.maxHp && da === 'Sturdy') { dmg = t.hp - 1; blog(b, `${t.name} endured the hit with Sturdy!`); }
   if (dmg >= t.hp && t.v?.endure) { dmg = t.hp - 1; blog(b, `${t.name} endured the hit!`); }
   if (dmg >= t.hp && name === 'False Swipe') dmg = t.hp - 1;
   const dealt = Math.min(t.hp, Math.max(0, dmg)); t.hp -= dealt;
   blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit!' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective!' : eff < 1 ? ' — not very effective' : ''}.`);
   note(b, { k: 'hit', by: u.id, to: t.id, dmg: dealt, cat: x0cat(b, u, t, base), move: name });
+  if (t.illusion && t.id !== u.id) restoreIllusion(b, t, `${t.name} was hit`);   // any damaging hit breaks Illusion
   if (dealt > 0) {
     t.timesHit = (t.timesHit || 0) + 1;
     if (t.v?.rage && !t.fainted && t.hp > 0) blog(b, `${t.name}'s rage is building: ${applyStages(t, { atk: 1 }, b, t)}.`);
@@ -3114,7 +3165,14 @@ async function dealDamage(env, u, t, base, { spread, o, sheer }) {
     if (da === 'Cute Charm' && makesContact(b, u, base) && await chanceRoll(env, 30, `${t.name}'s Cute Charm`)) infatuate(b, u, t);
     if (da === 'Perish Body' && makesContact(b, u, base)) { for (const x of [u, t]) if (x.v?.perish == null && !x.fainted && abil(b, x) !== 'Soundproof') vol(x).perish = 3; blog(b, `${t.name}'s Perish Body: both will faint in 3 turns!`); }
     if (da === 'Toxic Debris' && x0cat(b, u, t, base) === 'Physical' && !t.fainted) toxicDebris(b, mis, t, u);
+    if (da === 'Pickpocket' && makesContact(b, u, base) && u.side !== t.side && !t.fainted) stealBoost(b, t, u, 'Pickpocket');
+    gulpRetaliate(b, t, u, formHit);
   }
+  if (dealt > 0 && !u.fainted && u.side !== t.side) {   // the attacker's own this-game abilities
+    if (aa === 'Magician') stealBoost(b, u, t, 'Magician');
+    await klutzOnHit(env, u, t);
+  }
+  if (!t.fainted) checkConsumables(b, t);
   return { dealt, crit, ko, hits: n };
 }
 const x0cat = (b, u, t, base) => categoryFor(b, u, t, base);
@@ -3189,7 +3247,14 @@ async function targetEffect(env, u, t, base, { dealt }) {
     if (name === 'Jaw Lock') { tv.jawLock = u.id; uv.trappedBy = t.id; uv.jawLock = t.id; blog(b, `${u.name} can't switch out either.`); }
     return;
   }
+  if (stickyHeld(b, t, u) && ['Psych Up', 'Heart Swap', 'Power Swap', 'Guard Swap'].includes(name) && BOOST_KEYS.some(k => (t.stages[k] || 0) > 0)) { blog(b, `${t.name}'s Sticky Hold keeps its boosts — ${name} failed.`); return; }
   switch (name) {
+    case 'Spite': case 'Eerie Spell': {
+      if (name === 'Eerie Spell' && !hit) break;
+      const lm = tv.lastMove, n0 = lm ? ppOf(t, lm) : 0;
+      if (!lm || n0 === Infinity || n0 <= 0) { if (name === 'Spite') blog(b, 'But it failed.'); break; }
+      const cut = Math.min(n0, name === 'Spite' ? 4 : 3); spendPP(t, lm, cut); blog(b, `${t.name}'s ${lm} lost ${cut} PP (${t.pp[lm]} left).`); break;
+    }
     case 'Leech Seed': if (t.types.includes('Grass')) blog(b, `${t.name} can't be seeded.`); else if (tv.leechSeed) blog(b, `${t.name} is already seeded.`); else { tv.leechSeed = u.id; blog(b, `${t.name} was seeded!`); } break;
     case 'Taunt': if (veiled || defAb(b, u, t) === 'Oblivious') { veiled ? veilMsg() : blog(b, `${t.name}'s Oblivious ignores the taunt.`); } else if (tv.taunt) blog(b, `${t.name} is already taunted.`); else { tv.taunt = 3; blog(b, `${t.name} fell for the taunt — no status moves for 3 turns.`); } break;
     case 'Encore': if (veiled) veilMsg(); else if (!tv.lastMove || FAIL_ENCORE.has(tv.lastMove) || tv.encore || !(t.moves || []).includes(tv.lastMove)) blog(b, 'But it failed.'); else { tv.encore = { move: tv.lastMove, left: 3 }; blog(b, `${t.name} must use ${tv.lastMove} for its next 3 turns.`); } break;
@@ -3222,8 +3287,8 @@ async function targetEffect(env, u, t, base, { dealt }) {
     case 'Speed Swap': [u.stats.spe, t.stats.spe] = [t.stats.spe, u.stats.spe]; blog(b, `${u.name} swapped Speed with ${t.name}.`); break;
     case 'Power Split': for (const k of ['atk', 'spa']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its power with ${t.name}.`); break;
     case 'Guard Split': for (const k of ['def', 'spd']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its guard with ${t.name}.`); break;
-    case 'Topsy-Turvy': for (const k of STAGE_KEYS) if (k !== 'crit') t.stages[k] = -(t.stages[k] || 0); blog(b, `${t.name}'s stat changes were flipped.`); break;
-    case 'Clear Smog': if (hit) { t.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); blog(b, `${t.name}'s stat changes were removed.`); } break;
+    case 'Topsy-Turvy': { const ns = { ...t.stages }; for (const k of STAGE_KEYS) if (k !== 'crit') ns[k] = -(t.stages[k] || 0); t.stages = keepBoosts(b, t, u, ns); blog(b, `${t.name}'s stat changes were flipped${stickyHeld(b, t, u) ? ' (Sticky Hold keeps its boosts)' : ''}.`); break; }
+    case 'Clear Smog': if (hit) { t.stages = keepBoosts(b, t, u, Object.fromEntries(STAGE_KEYS.map(k => [k, 0]))); blog(b, `${t.name}'s stat changes were removed${stickyHeld(b, t, u) ? ' (Sticky Hold keeps its boosts)' : ''}.`); } break;
     case 'Soak': if (t.types.join() === 'Water') blog(b, 'But it failed.'); else { t.types = ['Water']; blog(b, `${t.name} became Water type.`); } break;
     case 'Magic Powder': if (t.types.join() === 'Psychic') blog(b, 'But it failed.'); else { t.types = ['Psychic']; blog(b, `${t.name} became Psychic type.`); } break;
     case 'Trick-or-Treat': if (t.types.includes('Ghost')) blog(b, 'But it failed.'); else { t.types = [...t.types.filter(x => x !== 'Grass' || true), 'Ghost'].slice(-3); blog(b, `${t.name} gained the Ghost type.`); } break;
@@ -3244,13 +3309,8 @@ async function targetEffect(env, u, t, base, { dealt }) {
     case 'Wake-Up Slap': if (hit && t.status === 'slp') { t.status = null; t.slp = 0; blog(b, `${t.name} woke up!`); } break;
     case 'Smelling Salts': if (hit && t.status === 'par') { t.status = null; blog(b, `${t.name} was cured of paralysis.`); } break;
     case 'Venom Drench': if (['psn', 'tox'].includes(t.status)) blog(b, `${t.name}: ${applyStages(t, { atk: -1, spa: -1, spe: -1 }, b, u)}.`); else blog(b, `${t.name} isn't poisoned — no effect.`); break;
-    case 'Transform': {
-      if (uv.transformed || tv.transformed) { blog(b, 'But it failed.'); break; }
-      uv.transformed = { stats: { ...u.stats }, types: [...u.types], moves: [...(u.moves || [])], ability: u.ability, stages: { ...u.stages } };
-      u.stats = { ...t.stats, hp: u.stats.hp }; u.types = [...t.types]; u.moves = [...(t.moves || [])]; ab(u).now = abil(b, t); u.stages = { ...t.stages }; uv.transformedInto = t.name;
-      blog(b, `${u.name} transformed into ${t.name}!`); break;
-    }
-    case 'Mimic': { const lm = tv.lastMove; if (!lm || FAIL_MIMIC.has(lm) || (u.moves || []).includes(lm)) { blog(b, 'But it failed.'); break; } u.moves = (u.moves || []).map(m => m === 'Mimic' ? lm : m); blog(b, `${u.name} learned ${lm} for this battle.`); break; }
+    case 'Transform': doTransform(b, u, t); break;
+    case 'Mimic': { const lm = tv.lastMove; if (!lm || FAIL_MIMIC.has(lm) || (u.moves || []).includes(lm)) { blog(b, 'But it failed.'); break; } u.moves = (u.moves || []).map(m => m === 'Mimic' ? lm : m); setPP(u, lm, maxPPOf(lm) ?? 5); blog(b, `${u.name} learned ${lm} for this battle.`); break; }
     case 'Sketch': await sketch(env, u, t); break;
     case 'Conversion 2': { const lm = tv.lastMove && getMove(tv.lastMove); if (!lm) { blog(b, 'But it failed.'); break; } const res = Object.keys(TYPE_CHART).filter(tp => (TYPE_CHART[lm.type]?.[tp] ?? 1) < 1 && !u.types.includes(tp)); if (!res.length) { blog(b, 'But it failed.'); break; } u.types = [res[randInt(res.length)]]; blog(b, `${u.name} became ${u.types[0]} type.`); break; }
     case 'Mind Reader': case 'Lock-On': uv.lockOn = { target: t.id, left: 1 }; blog(b, `${u.name} took aim at ${t.name} — its next move can't miss.`); break;
@@ -3271,7 +3331,7 @@ async function sketch(env, u, t) {
   const allowed = 1 + Math.floor((u.level || 1) / 10), usedUp = (u.sketched || 0) + (b.sketches || []).filter(s => s.by === u.id).length;
   if (!lm || NO_SKETCH.has(lm) || (u.moves || []).includes(lm)) { blog(b, 'But it failed.'); return; }
   if (u.side === 'p' && usedUp >= allowed) { blog(b, `${u.name} has used all ${allowed} of its Sketches for now (one more every 10 levels).`); return; }
-  u.moves = (u.moves || []).map(m => m === 'Sketch' ? lm : m);
+  u.moves = (u.moves || []).map(m => m === 'Sketch' ? lm : m); setPP(u, lm, maxPPOf(lm) ?? 5);
   if (u.side === 'p') b.sketches = [...(b.sketches || []), { by: u.id, owner: u.owner, ref: u.ref, move: lm }];
   blog(b, `${u.name} sketched ${lm}! ${u.side === 'p' ? 'It keeps the move for good.' : ''}`);
 }
@@ -3295,7 +3355,7 @@ async function selfOrFieldMove(env, u, base, targetIds) {
   }
   if (HAZARD_MOVES[name] && base.category === 'Status') return startTiles(env, u, HAZARD_MOVES[name]) ? 'done' : 'done';
   switch (name) {
-    case 'Haze': for (const x of fieldUnits(b)) x.stages = Object.fromEntries(STAGE_KEYS.map(k => [k, 0])); blog(b, 'All stat changes were removed.'); return 'done';
+    case 'Haze': for (const x of fieldUnits(b)) { x.stages = keepBoosts(b, x, u, Object.fromEntries(STAGE_KEYS.map(k => [k, 0]))); if (stickyHeld(b, x, u)) blog(b, `${x.name}'s Sticky Hold keeps its boosts.`); } blog(b, 'All stat changes were removed.'); return 'done';
     case 'Perish Song': { let n = 0; for (const x of fieldUnits(b)) if (x.v?.perish == null && abil(b, x) !== 'Soundproof') { vol(x).perish = 3; n++; } blog(b, n ? 'Everyone who heard the song will faint in 3 turns!' : 'But it failed.'); return 'done'; }
     case 'Fairy Lock': v.fairyLock = true; blog(b, `No one can switch out until ${u.name}'s next turn.`); return 'done';
     case 'Court Change': { for (const t of b.timers || []) if (t.side) t.side = t.side === 'p' ? 'w' : 'p'; for (const h of b.hazards || []) h.side = h.side === 'p' ? 'w' : 'p'; blog(b, 'The two sides swapped their effects and hazard tiles.'); return 'done'; }
@@ -3338,7 +3398,7 @@ async function selfOrFieldMove(env, u, base, targetIds) {
     case 'Jungle Healing': case 'Lunar Blessing': for (const x of [u, ...allies(b, u)]) { const h = healBlocked(x) ? 0 : heal(x, x.maxHp / 4); if (x.status) x.status = null; blog(b, `${x.name} recovers ${h} HP and is cured.`); } return 'done';
     case 'Aromatherapy': case 'Heal Bell': for (const x of Object.values(b.units).filter(x => x.side === u.side && x.owner === u.owner && !x.fainted)) if (x.status) { x.status = null; x.slp = 0; blog(b, `${x.name} was cured.`); } blog(b, `${name} cured ${u.name}'s whole party.`); return 'done';
     case 'Destiny Bond': v.destinyBond = true; blog(b, `${u.name} is trying to take its foe down with it (until its next turn).`); return 'done';
-    case 'Grudge': blog(b, 'Grudge has no effect — PP isn\'t tracked in this game.'); return 'done';
+    case 'Grudge': v.grudge = true; blog(b, `${u.name} bears a grudge — if a foe's move knocks it out before its next turn, that move loses all its PP.`); return 'done';
     case 'Imprison': v.imprison = true; blog(b, `${u.name} sealed its moves — foes can't use moves it knows while it's out.`); return 'done';
     case 'Follow Me': case 'Rage Powder': v.followMe = name; blog(b, `${u.name} became the center of attention — foes that can reach it must aim their single-target moves at it (until its next turn).`); return 'done';
     case 'Magic Coat': v.magicCoat = true; blog(b, `${u.name} shrouded itself in Magic Coat until its next turn.`); return 'done';
@@ -3473,13 +3533,419 @@ function volChips(b, u) {
   if (v.magnetRise) add(`Magnet Rise ${v.magnetRise}`); if (v.telekinesis) add('Floating'); if (v.smackDown) add('Grounded');
   if (v.aquaRing) add('Aqua Ring'); if (v.stockpile) add(`Stockpile ${v.stockpile}`); if (v.uproar) add('Uproar');
   if (v.transformed) add(`Transformed (${v.transformedInto})`); if (v.destinyBond) add('Destiny Bond'); if (v.glaiveRush) add('Exposed');
+  if (v.grudge) add('Grudge', 'Until its next turn'); if (v.unburden) add('Unburden', 'Speed ×2 until it switches out'); if (v.hosting) add('Commander', `${b.units[v.hosting]?.name || 'Tatsugiri'} is inside: +2 all stats, can't switch`);
+  if (u.inside) add(`Inside ${b.units[u.inside]?.name || 'Dondozo'}`, 'Commander: can\'t be targeted and skips its turns');
+  const seen = u.side !== 'w' || b.seenAb?.[u.id];   // don't give a hidden wild ability away
+  if (u.typePick && seen) add(`${u.typePick} type`, u.ability === 'Multitype' ? 'Multitype pick' : 'RKS System pick'); if (u.harvestMode && seen) add(`Harvest: ${u.harvestMode === 'hp' ? 'HP' : 'Status'}`);
+  const st = (u.once?.stash || []); if (st.length && seen) add(`Pickup: ${st.map(k => KIND_LABEL[k]).join(', ')}`, 'Stored once-per-battle effect');
   return out.join(' ');
 }
 // Moves the app now runs completely (the workbook's "Automated" column may still say otherwise).
 const HAS_WEIGHT = () => POKEDEX_DATA.some(p => p.weight != null);
 const WEIGHT_MOVES = new Set(['Low Kick', 'Grass Knot', 'Heat Crash', 'Heavy Slam']);
-const NOT_YET = new Set(['Relic Song']);
+const NOT_YET = new Set();   // Relic Song's form change works since Stage 11
 const IMPLEMENTED_PARTS = new Set(MOVES_DATA.filter(m => m.fx && m.fx.auto !== 'yes').map(m => m.name).filter(n => !NOT_YET.has(n)));
+// ═══ STAGE 11 (Oct 2026): PP, battle forms, this game's ability rules ═════════════════
+// Every rule here is one Jack decided (fix list doc, items #15 and #17 and PP). The Abilities tab's
+// "This Game" column says the same rules in plain words.
+
+// ---- PP ----
+// Max PP = the Moves tab's PP, plus any PP re-rolls this Pokémon has put on that move (up to the games' max: base × 1.6).
+// PP is full at the start of every mission (units are rebuilt from the team each battle).
+const ppCap = name => { const d = getMove(name); return d?.pp ? Math.floor(d.pp * 1.6) : null; };
+const maxPPOf = (name, bonus = 0) => { const d = getMove(name); return d?.pp ? Math.min(ppCap(name), d.pp + (bonus || 0)) : null; };
+function initPP(u) {
+  u.pp = {}; u.ppMax = {};
+  for (const m of u.moves || []) { const x = maxPPOf(m, u.ppBonus?.[m]); if (x != null) { u.pp[m] = x; u.ppMax[m] = x; } }
+  return u;
+}
+function ppOf(u, name) {   // Infinity = no PP tracking for this move (Struggle, or no PP listed)
+  if (name === 'Struggle') return Infinity;
+  u.pp = u.pp || {}; u.ppMax = u.ppMax || {};
+  if (u.pp[name] == null) { const x = maxPPOf(name, u.ppBonus?.[name]); if (x == null) return Infinity; u.pp[name] = x; u.ppMax[name] = x; }
+  return u.pp[name];
+}
+const ppMaxOf = (u, name) => u.ppMax?.[name] ?? maxPPOf(name, u.ppBonus?.[name]);
+function spendPP(u, name, n = 1) { if (ppOf(u, name) === Infinity) return; u.pp[name] = Math.max(0, u.pp[name] - n); }
+function setPP(u, name, max) { u.pp = u.pp || {}; u.ppMax = u.ppMax || {}; u.pp[name] = max; u.ppMax[name] = max; }
+const ppPill = (u, name) => { const n = ppOf(u, name); if (n === Infinity) return ''; return `<span class="pill ${n === 0 ? 'down' : ''}" style="font-size:.75rem">PP ${n}/${ppMaxOf(u, name)}</span>`; };
+
+// ---- Locked abilities (Lines tab "Locked Ability": e.g. Battle Bond on Final 400) ----
+const lockedAbility = final => getLine(final)?.lockedAbility || null;
+
+// ---- Names and forms ----
+const trueName = u => u.realName || u.name;                 // past an Illusion
+const baseNameOf = u => u.baseName || trueName(u);           // the form it has outside battle
+const baseTypes = u => u.typePick ? [u.typePick] : (getPokemon(trueName(u))?.types || u.types);
+// Change a Pokémon into one of its battle forms (stats recalculated with its own IVs/EVs/nature; HP keeps the damage taken).
+function setForm(b, u, name, quiet) {
+  if (!name || trueName(u) === name || !getPokemon(name)) return false;
+  const p = getPokemon(name), oldMax = u.maxHp, old = trueName(u);
+  if (!u.baseName) u.baseName = old;
+  if (u.realName) u.realName = name; else u.name = name;
+  u.types = u.typePick ? [u.typePick] : [...p.types];
+  if (u.calc) {
+    const iv = Object.fromEntries(STAT_KEYS.map(k => [k, u.calc.ivs?.[k] ?? 31])), ev = Object.fromEntries(STAT_KEYS.map(k => [k, u.calc.evs?.[k] || 0]));
+    const st = statsFor(name, iv, ev, u.level, u.calc.nature);
+    u.stats = { ...st };
+    if (st.hp !== oldMax) { u.maxHp = st.hp; if (u.hp > 0) u.hp = Math.max(1, Math.min(u.maxHp, u.hp + (st.hp - oldMax))); }
+  }
+  if (!quiet) blog(b, `${old} changed into ${name}!`);
+  return true;
+}
+function revertForm(b, u) { if (u.baseName && trueName(u) !== u.baseName) setForm(b, u, u.baseName, true); }
+const FORM = {
+  zen: { 'Darmanitan': 'Darmanitan (Zen Mode)', 'Darmanitan (Galarian)': 'Darmanitan (Galarian, Zen Mode)' },
+  castform: { sun: 'Castform (Sunny)', rain: 'Castform (Rainy)', snow: 'Castform (Snowy)' },
+};
+// HP-based forms: Zen Mode (≤ ½ → Zen), Schooling (level 20+, above ¼ → School), Shields Down (≤ ½ → Core). Entry and end of its own turn.
+function hpForms(b, u) {
+  if (!onField(b, u) || u.fainted) return;
+  const a = abil(b, u), base = baseNameOf(u), half = u.hp * 2 <= u.maxHp;
+  if (a === 'Zen Mode' && FORM.zen[base]) setForm(b, u, half ? FORM.zen[base] : base);
+  if (a === 'Schooling' && base === 'Wishiwashi (Solo)') setForm(b, u, u.level >= 20 && u.hp * 4 > u.maxHp ? 'Wishiwashi (School)' : base);
+  if (a === 'Shields Down' && base === 'Minior (Meteor)') setForm(b, u, half ? 'Minior (Red Core)' : base);
+}
+// Weather forms (Forecast, Flower Gift) and Ice Face's restore in snow. Checked whenever things change.
+function weatherForms(b) {
+  for (const u of fieldUnits(b)) {
+    const a = abil(b, u), base = baseNameOf(u), w = weatherNow(b);
+    if (a === 'Forecast' && base === 'Castform (Normal)') {
+      const k = sunFor(b, u) ? 'sun' : ['rain', 'heavyrain'].includes(w) ? 'rain' : ['snow', 'hail'].includes(w) ? 'snow' : null;
+      setForm(b, u, k ? FORM.castform[k] : base);
+    }
+    if (a === 'Flower Gift' && base === 'Cherrim (Overcast)') setForm(b, u, sunFor(b, u) ? 'Cherrim (Sunshine)' : base);
+    if (a === 'Ice Face' && base === 'Eiscue (Ice Face)') setForm(b, u, ab(u).iceFaceBroken ? 'Eiscue (No Ice Face)' : base);
+  }
+}
+// Forms that come back when it enters again, and Tera Shift.
+function entryForms(b, u) {
+  const a = abil(b, u), base = baseNameOf(u), o = onceOf(u);
+  if (a === 'Zero to Hero' && base === 'Palafin (Zero)' && o.hero) { setForm(b, u, 'Palafin (Hero)', true); blog(b, `${base} underwent a heroic transformation! (Zero to Hero)`); }
+  if (a === 'Battle Bond' && o.ash) setForm(b, u, 'Ash-Greninja', true);
+  if (a === 'Disguise' && ab(u).disguiseBroken) setForm(b, u, 'Mimikyu (Busted)', true);
+  if (a === 'Ice Face' && snowOrHail(b)) ab(u).iceFaceBroken = false;
+  if (a === 'Tera Shift' && base === 'Terapagos') { setForm(b, u, 'Terapagos (Terastal)', true); ab(u).now = 'Tera Shell'; blog(b, `${base}'s Tera Shift: it became Terapagos (Terastal)!`); }
+  hpForms(b, u); weatherForms(b);
+}
+
+// ---- Before-battle picks: RKS System / Multitype type, Harvest mode ----
+const TYPE_LIST = ['Normal', 'Fire', 'Water', 'Electric', 'Grass', 'Ice', 'Fighting', 'Poison', 'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy'];
+const needsTypePick = u => ['RKS System', 'Multitype'].includes(u.ab?.now || u.ability) && !u.typePick && !u.fainted;
+const needsHarvest = u => (u.ab?.now || u.ability) === 'Harvest' && !u.harvestMode && !u.fainted;
+const pendingPicks = b => Object.values(b.units).filter(u => needsTypePick(u) || needsHarvest(u));
+
+// ---- Choices that wait for a Pokémon's trainer (Gluttony, Imposter ties) ----
+// They're asked on the trainer's own screen; turns wait until they're answered.
+function addChoice(b, c) { b.choices = [...(b.choices || []), c]; }
+function resolveChoice(b, i, key) {
+  const c = (b.choices || [])[i]; if (!c) return;
+  b.choices = b.choices.filter((_, j) => j !== i);
+  const u = b.units[c.id]; if (!u || u.fainted) return;
+  if (c.kind === 'glut') {
+    if (key === 'spe') blog(b, `${u.name}'s Gluttony: ${applyStages(u, { spe: 1 }, b, u)}.`);
+    else blog(b, `${u.name}'s Gluttony restores ${heal(u, u.maxHp * .33)} HP.`);
+  }
+  if (c.kind === 'imposter') { const t = b.units[key]; if (t && onField(b, t)) doTransform(b, u, t, 'Imposter'); }
+}
+const CHOICE_TEXT = { glut: 'Gluttony: heal 33% of its HP, or Speed +1?', imposter: 'Imposter: which foe does it copy?' };
+function choiceOptions(b, c) {
+  if (c.kind === 'glut') return [{ key: 'heal', label: 'Heal 33%' }, { key: 'spe', label: 'Speed +1' }];
+  if (c.kind === 'imposter') return (c.opts || []).map(id => b.units[id]).filter(t => t && onField(b, t)).map(t => ({ key: t.id, label: t.name }));
+  return [];
+}
+
+// ---- Once-per-battle "Berry stand-ins" and friends ----
+// Each Pokémon's own one comes from its ability; Pickup can store one more it picked up; Symbiosis can recharge an ally's once.
+const KIND_OF = { 'Cheek Pouch': 'cheek', 'Cud Chew': 'cud', Gluttony: 'glut', Klutz: 'klutz', 'Power Construct': 'power', Ripen: 'ripen', Unburden: 'unburden' };
+const KIND_LABEL = { cheek: 'Cheek Pouch', cud: 'Cud Chew', glut: 'Gluttony', klutz: 'Klutz', power: 'Power Construct', ripen: 'Ripen', unburden: 'Unburden' };
+const BERRY_KINDS = new Set(['cheek', 'cud', 'glut', 'ripen', 'unburden']);   // the ones Unnerve blocks
+const onceOf = u => { const o = u.once || (u.once = {}); o.used = o.used || {}; return o; };
+const unnerved = (b, u) => foes(b, u).some(f => ['Unnerve', 'As One (Glastrier)', 'As One (Spectrier)'].includes(abil(b, f)));
+const within3 = (b, x, y) => b.noMap || !x.pos || !y.pos || x.pos === 'table' || y.pos === 'table' || hexDistance(x.pos, y.pos) <= 3;
+function readyKinds(b, u) {
+  const o = onceOf(u), out = [], k = KIND_OF[abil(b, u)];
+  if (k && !o.used[k]) out.push({ k });
+  (o.stash || []).forEach((k2, i) => out.push({ k: k2, stash: i }));
+  return out;
+}
+function kindTriggered(u, k) {
+  const half = u.hp * 2 <= u.maxHp, below = u.hp * 2 < u.maxHp;
+  return { cheek: half || !!u.status, cud: below || !!u.status, glut: half, power: half, unburden: half, ripen: below }[k] || false;
+}
+function checkConsumables(b, u) {
+  if (!u || u.fainted || u.hp <= 0 || !onField(b, u)) return;
+  for (const r of readyKinds(b, u)) {
+    if (r.k === 'klutz' || !kindTriggered(u, r.k)) continue;
+    if (BERRY_KINDS.has(r.k) && unnerved(b, u)) { if (!onceOf(u).unnMsg) { onceOf(u).unnMsg = true; blog(b, `${u.name} is too nervous to use its ${KIND_LABEL[r.k]} (Unnerve).`); } continue; }
+    useKind(b, u, r);
+  }
+}
+function useKind(b, u, r) {
+  const o = onceOf(u), via = r.stash !== undefined ? 'Pickup' : KIND_LABEL[r.k];
+  if (r.stash !== undefined) o.stash.splice(r.stash, 1); else o.used[r.k] = true;
+  if (r.k === 'cheek') { if (u.status) { blog(b, `${u.name}'s ${via} cured its ${STATUS_NAME[u.status].toLowerCase()} status.`); u.status = null; u.slp = 0; } blog(b, `${u.name}'s ${via} restores ${heal(u, u.maxHp / 3)} HP.`); }
+  if (r.k === 'cud') {
+    if (u.hp * 2 < u.maxHp) { blog(b, `${u.name}'s ${via} restores ${heal(u, u.maxHp / 4)} HP (and again at the end of its next turn).`); o.cudPend = { kind: 'hp', at: b.turnNo || 0 }; }
+    else { const st = u.status; u.status = null; u.slp = 0; blog(b, `${u.name}'s ${via} cured its ${STATUS_NAME[st].toLowerCase()} status (and keeps it away until the end of its next turn).`); o.cudPend = { kind: 'status', st, at: b.turnNo || 0 }; }
+  }
+  if (r.k === 'glut') { blog(b, `${u.name}'s ${via} kicks in — its trainer picks heal or Speed.`); addChoice(b, { id: u.id, kind: 'glut' }); }
+  if (r.k === 'power') blog(b, `${u.name}'s ${via} restores ${heal(u, u.maxHp / 2)} HP!`);
+  if (r.k === 'ripen') blog(b, `${u.name}'s ${via} restores ${heal(u, u.maxHp / 2)} HP!`);
+  if (r.k === 'unburden') { blog(b, `${u.name}'s ${via} restores ${heal(u, u.maxHp / 4)} HP, and its Speed doubles until it switches out!`); vol(u).unburden = true; }
+  afterKindUsed(b, u, r);
+}
+function afterKindUsed(b, u, r) {
+  // Symbiosis: once per battle, recharges an ally's used-up once-per-battle ability (Unnerve blocks the refill)
+  const sym = fieldUnits(b).find(x => x.id !== u.id && x.side === u.side && abil(b, x) === 'Symbiosis' && !onceOf(x).symb && within3(b, x, u));
+  if (sym && !unnerved(b, u)) {
+    onceOf(sym).symb = true;
+    if (r.stash !== undefined) onceOf(u).stash = [...(onceOf(u).stash || []), r.k]; else onceOf(u).used[r.k] = false;
+    blog(b, `${sym.name}'s Symbiosis recharges ${u.name}'s ${KIND_LABEL[r.k]}.`);
+  }
+  // Pickup: once per battle, picks up a Cheek Pouch / Cud Chew / Gluttony / Klutz used within 3 hexes, for later
+  if (['cheek', 'cud', 'glut', 'klutz'].includes(r.k)) {
+    const p = fieldUnits(b).find(x => x.id !== u.id && abil(b, x) === 'Pickup' && !onceOf(x).pick && within3(b, x, u));
+    if (p) { onceOf(p).pick = true; onceOf(p).stash = [...(onceOf(p).stash || []), r.k]; blog(b, `${p.name}'s Pickup grabbed ${u.name}'s ${KIND_LABEL[r.k]} for later.`); }
+  }
+}
+// Klutz (own or picked up): once per battle, when it hits a foe with a damaging move, it may pass its status to that foe.
+async function klutzOnHit(env, u, t) {
+  const b = env.b; if (!u.status || t.fainted || t.status) return;
+  const r = readyKinds(b, u).find(x => x.k === 'klutz'); if (!r) return;
+  if (!canGetStatus(t, u.status, null, b, u)) return;
+  const pick = await askChoice({ title: `${u.name}: ${r.stash !== undefined ? 'Pickup (Klutz)' : 'Klutz'}`, text: `Pass its ${STATUS_NAME[u.status].toLowerCase()} status to ${t.name}? (once per battle)`, options: [{ key: 'yes', label: 'Pass it' }, { key: 'no', label: 'Not now' }], auto: env.auto ? 'yes' : null });
+  if (pick !== 'yes') return;
+  const st = u.status, turns = u.slp;
+  const o = onceOf(u); if (r.stash !== undefined) o.stash.splice(r.stash, 1); else o.used.klutz = true;
+  u.status = null; u.slp = 0; giveStatus(b, t, st, u, st === 'slp' ? turns || 1 : 0);
+  blog(b, `${u.name} passed its status to ${t.name} and is cured.`);
+  afterKindUsed(b, u, r);
+}
+
+// ---- Stat-boost steals (Magician, Pickpocket) and Sticky Hold ----
+const BOOST_KEYS = ['atk', 'def', 'spa', 'spd', 'spe', 'acc', 'eva'];
+const stickyHeld = (b, t, src) => !!src && src.id !== t.id && src.side !== t.side && abil(b, t) === 'Sticky Hold';
+function stealBoost(b, thief, from, why) {
+  const ks = BOOST_KEYS.filter(k => (from.stages[k] || 0) > 0); if (!ks.length) return;
+  if (stickyHeld(b, from, thief)) { blog(b, `${from.name}'s Sticky Hold keeps its boosts.`); return; }
+  const k = ks.reduce((best, x) => from.stages[x] > from.stages[best] ? x : best, ks[0]);
+  from.stages[k] -= 1; thief.stages[k] = Math.min(6, (thief.stages[k] || 0) + 1);
+  blog(b, `${thief.name}'s ${why} took one ${STAGE_LABEL[k]} boost from ${from.name}.`);
+}
+// Keep a Sticky Hold Pokémon's boosts when a foe would wipe or flip them (its drops still change normally).
+function keepBoosts(b, t, src, newStages) {
+  if (!stickyHeld(b, t, src)) return newStages;
+  const out = { ...newStages }; for (const k of BOOST_KEYS) if ((t.stages[k] || 0) > 0) out[k] = t.stages[k];
+  return out;
+}
+
+// ---- Rivalry: one coin flip per foe for the whole battle ----
+function ensureRival(b, u, t) {
+  if (abil(b, u) !== 'Rivalry' || u.side === t.side) return;
+  b.rival = b.rival || {}; const k = u.id + '>' + t.id;
+  if (b.rival[k] == null) { b.rival[k] = randInt(2) ? 1 : 0; blog(b, `${u.name}'s Rivalry (coin flip): ${t.name} counts as ${b.rival[k] ? 'the same' : 'the opposite'} gender — ${b.rival[k] ? '1.25×' : '0.75×'} damage to it this battle.`); }
+}
+
+// ---- Priority (this game's rule: a priority move gives its user +1 Speed, negative priority −1) ----
+function effPriority(b, u, base) {
+  const a = abil(b, u), name = base.name;
+  let p = base.priority || 0;
+  if (name === 'Grassy Glide' && terrainNow(b) === 'grassy' && grounded(b, u)) p = 1;
+  if (a === 'Prankster' && base.category === 'Status') p += 1;
+  if (a === 'Gale Wings' && base.type === 'Flying' && u.hp === u.maxHp) p += 1;
+  if (a === 'Triage' && HEAL_MOVES.has(name)) p += 3;
+  if (a === 'Mycelium Might' && base.category === 'Status') p = -1;
+  return p;
+}
+const PRIORITY_BLOCKERS = ['Queenly Majesty', 'Dazzling', 'Armor Tail'];
+function priorityBlocker(b, u, t) {   // a foe's priority move aimed at t (or an ally within 3 hexes) fails
+  for (const x of [t, ...allies(b, t)]) {
+    if (x.id !== t.id && !within3(b, x, t)) continue;
+    const a = defAb(b, u, x); if (PRIORITY_BLOCKERS.includes(a)) return `${x.name}'s ${a}`;
+  }
+  return null;
+}
+
+// ---- Transform (move and Imposter) ----
+function doTransform(b, u, t, why) {
+  const uv = vol(u); if (uv.transformed || t.v?.transformed) { blog(b, 'But it failed.'); return false; }
+  uv.transformed = { stats: { ...u.stats }, types: [...u.types], moves: [...(u.moves || [])], ability: u.ability, stages: { ...u.stages }, pp: { ...(u.pp || {}) }, ppMax: { ...(u.ppMax || {}) } };
+  u.stats = { ...t.stats, hp: u.stats.hp }; u.types = [...t.types]; u.moves = [...(t.moves || [])]; ab(u).now = abil(b, t); u.stages = { ...t.stages }; uv.transformedInto = trueName(t);
+  for (const m of u.moves) setPP(u, m, Math.min(5, ppMaxOf(t, m) ?? 5));   // copied moves have 5 PP each (as the games)
+  blog(b, `${u.name} transformed into ${t.name}!${why ? ` (${why})` : ''}`);
+  return true;
+}
+
+// ---- Entering the field: Illusion, Imposter, Frisk, Anticipation, Forewarn, Commander ----
+function stage11Entry(b, u) {
+  if (!onField(b, u)) return;
+  u.wasOut = true;
+  const a = abil(b, u);
+  entryForms(b, u);
+  if (a === 'Imposter' && !u.v?.transformed) {
+    const fs = foes(b, u); if (fs.length) {
+      const d = x => b.noMap || !u.pos || !x.pos || u.pos === 'table' ? 0 : hexDistance(u.pos, x.pos);
+      const best = Math.min(...fs.map(d)), near = fs.filter(x => d(x) === best);
+      if (near.length === 1) doTransform(b, u, near[0], 'Imposter');
+      else addChoice(b, { id: u.id, kind: 'imposter', opts: near.map(x => x.id) });
+    }
+  }
+  if (a === 'Frisk') {
+    const fs = foes(b, u); fs.forEach(f => { (b.seenAb = b.seenAb || {})[f.id] = true; });
+    if (fs.length) blog(b, `${u.name}'s Frisk: ${fs.map(f => `${f.name} has ${abil(b, f) || 'no ability'}`).join('; ')}.`);
+  }
+  if (a === 'Anticipation') {
+    const scary = foes(b, u).some(f => movesOf(f).some(m => m.category !== 'Status' && (effOf(m.type, u.types) > 1 || OHKO.includes(m.name) || ['Explosion', 'Self-Destruct', 'Misty Explosion'].includes(m.name))));
+    blog(b, scary ? `${u.name}'s Anticipation: it shuddered — a foe has a dangerous move!` : `${u.name}'s Anticipation: nothing dangerous sensed.`);
+  }
+  if (a === 'Forewarn') {
+    let best = null, bp = -1;
+    for (const f of foes(b, u)) for (const m of movesOf(f)) { const p = OHKO.includes(m.name) ? 150 : ['Counter', 'Mirror Coat', 'Metal Burst'].includes(m.name) ? 120 : m.category === 'Status' ? 0 : (m.power || 80); if (p > bp) { bp = p; best = `${f.name}'s ${m.name}`; } }
+    if (best) blog(b, `${u.name}'s Forewarn: it senses ${best}.`);
+  }
+  commanderCheck(b);
+}
+// Illusion: it looks like the last healthy Pokémon in its party (name, picture, and types for the other side) until a damaging move hits it.
+// Set when the battle is created and again whenever it goes back to the bench.
+function applyIllusion(b, u) {
+  if ((u.ab?.now || u.ability) !== 'Illusion' || u.illusion || u.fainted) return;
+  const mates = Object.values(b.units).filter(x => x.side === u.side && x.owner === u.owner && x.id !== u.id && !x.fainted);
+  const last = mates[mates.length - 1];
+  if (last) { u.realName = u.name; u.name = trueName(last); u.illusion = true; }
+}
+function restoreIllusion(b, u, why) {
+  if (!u.illusion) return;
+  u.name = u.realName; delete u.realName; delete u.illusion;
+  if (why) blog(b, `${why} — it was ${u.name} all along! (Illusion)`);
+}
+
+// ---- Commander: Tatsugiri hops into an ally Dondozo within 1 hex ----
+const isDondozo = x => /^Dondozo/.test(baseNameOf(x));
+function commanderCheck(b) {
+  for (const t of fieldUnits(b)) {
+    if (abil(b, t) !== 'Commander') continue;
+    const dz = allies(b, t).find(x => isDondozo(x) && !x.v?.hosting && (b.noMap || !t.pos || !x.pos || t.pos === 'table' || hexDistance(t.pos, x.pos) <= 1));
+    if (!dz) continue;
+    t.inside = dz.id; vol(dz).hosting = t.id; t.pos = null; t.meter = 0;
+    blog(b, `${t.name} went inside ${dz.name}'s mouth! (Commander) ${dz.name}: ${applyStages(dz, { atk: 2, def: 2, spa: 2, spd: 2, spe: 2 }, b, dz)}.`);
+  }
+}
+function commanderRelease(b, dz) {   // Dondozo left or fainted: Tatsugiri comes back out (its trainer places it again)
+  for (const t of Object.values(b.units)) if (t.inside === dz.id) {
+    delete t.inside; t.pos = b.noMap ? 'table' : null; t.meter = 0;
+    blog(b, `${t.name} came back out of ${dz.name}${b.noMap ? '' : ' — its trainer places it again'}.`);
+  }
+  if (dz.v) delete dz.v.hosting;
+}
+
+// ---- Tactical Type (Arceus (Altered)): best type combination against the nearest enemy, each of its turns ----
+function tacticalType(b, u) {
+  const fs = foes(b, u); if (!fs.length) return;
+  let enemy = fs[0];
+  if (!b.noMap && u.pos && u.pos !== 'table') {
+    const dist = b.grid ? stepsFrom(b.grid, u.pos) : null, d = x => dist ? (dist.get(x.pos) ?? 999) : hexDistance(u.pos, x.pos);
+    const order = actOrder(b);
+    enemy = [...fs].sort((p, q) => d(p) - d(q) || order(p.id) - order(q.id))[0];
+  }
+  const myMoves = (u.moves || []).map(getMove).filter(m => m && m.category !== 'Status' && (m.power || m.fx?.fixed));
+  const theirMoves = (enemy.moves || []).map(getMove).filter(m => m && m.category !== 'Status' && (m.power || m.fx?.fixed));
+  const blockedFor = (att, def, m) => !!abilityBlocks(clone(b), clone(att), clone(def), moveFor(b, att, m));
+  const myBlocked = new Set(myMoves.filter(m => blockedFor(u, enemy, m)).map(m => m.name));
+  const theirBlocked = new Set(theirMoves.filter(m => blockedFor(enemy, u, m)).map(m => m.name));
+  const dmg = (att, def, m, blockedSet) => { if (blockedSet.has(m.name)) return 0; if (m.fx?.fixed) return m.fx.fixed === 'level' ? att.level : m.fx.fixed;
+    const hits = parseHits(m.hits), n = Array.isArray(hits) ? 3 : (hits || 1);
+    try { return calcDamage({ b, att, def, move: m, roll: 20, crit: false, spread: false }).damage * n; } catch { return 0; } };
+  const combos = []; for (let i = 0; i < 18; i++) { combos.push([TYPE_LIST[i]]); for (let j = i + 1; j < 18; j++) combos.push([TYPE_LIST[i], TYPE_LIST[j]]); }
+  let best = -1, tied = [];
+  for (const T of combos) {
+    const me = { ...u, types: T };
+    const off = Math.max(0, ...myMoves.map(m => dmg(me, enemy, m, myBlocked)));
+    const def = Math.max(0, ...theirMoves.map(m => dmg(enemy, me, m, theirBlocked)));
+    const score = off / Math.max(1, def);
+    if (score > best + 1e-9) { best = score; tied = [T]; } else if (Math.abs(score - best) <= 1e-9) tied.push(T);
+  }
+  const cur = u.types.join('/'), keep = tied.find(T => T.join('/') === cur);
+  const pick = keep || tied[randInt(tied.length)];
+  if (pick.join('/') !== cur) { u.types = [...pick]; blog(b, `${u.name}'s Tactical Type: it became ${pick.join('/')} (vs ${enemy.name}).`); }
+  else blog(b, `${u.name}'s Tactical Type: it stays ${cur} (vs ${enemy.name}).`);
+}
+
+// ---- Gulp Missile (Cramorant) ----
+function gulp(b, u) {
+  if (abil(b, u) !== 'Gulp Missile' || baseNameOf(u) !== 'Cramorant' || trueName(u) !== 'Cramorant') return;
+  setForm(b, u, u.hp * 2 > u.maxHp ? 'Cramorant (Gulping)' : 'Cramorant (Gorging)');
+}
+function gulpRetaliate(b, t, att, n) {   // n = the form Cramorant was in when it was hit
+  if (!['Cramorant (Gulping)', 'Cramorant (Gorging)'].includes(n) || att.fainted) return;
+  if (!t.fainted) setForm(b, t, 'Cramorant', true);
+  blog(b, `${t.name} spat out its prey at ${att.name}! (Gulp Missile)`);
+  hurt(b, att, att.maxHp / 4, 'Gulp Missile', t);
+  if (att.fainted) return;
+  if (n === 'Cramorant (Gulping)') blog(b, `${att.name}: ${applyStages(att, { def: -1 }, b, t)}.`);
+  else if (canGetStatus(att, 'par', null, b, t)) giveStatus(b, att, 'par', t);
+}
+
+// ---- Bonus re-rolls after a mission (Honey Gather, Pickup, Ball Fetch) ----
+function missionBonusRerolls(u) {
+  const a = u.ability, out = [];
+  if (a === 'Honey Gather') out.push(['Honey Gather', Math.min(100, 10 * Math.ceil((u.level || 1) / 10))]);
+  if (a === 'Pickup') out.push(['Pickup', 10]);
+  if (a === 'Ball Fetch' && u.wasOut) out.push(['Ball Fetch', 5]);
+  return out.filter(([, pct]) => 1 + randInt(100) <= pct).map(([why]) => why);
+}
+
+// Abilities that work through this game's own rules (all of them are automated now).
+const STAGE11_ABILITIES = ['Cheek Pouch', 'Cud Chew', 'Frisk', 'Gluttony', 'Harvest', 'Honey Gather', 'Klutz', 'Magician', 'Pickpocket', 'Pickup', 'Power Construct', 'Pressure', 'Ripen', 'Rivalry', 'Run Away',
+  'Stall', 'Sticky Hold', 'Symbiosis', 'Unburden', 'Unnerve', 'Ball Fetch', 'Imposter', 'Multitype', 'RKS System', 'Tactical Type', 'Telepathy', 'Anticipation', 'Forewarn', 'Queenly Majesty', 'Dazzling', 'Armor Tail',
+  'Illusion', 'Commander', 'Prankster', 'Gale Wings', 'Triage', 'Quick Draw', 'Analytic', 'Mycelium Might', 'Zen Mode', 'Schooling', 'Zero to Hero', 'Battle Bond', 'Shields Down', 'Tera Shift', 'Stance Change',
+  'Forecast', 'Flower Gift', 'Hunger Switch', 'Disguise', 'Gulp Missile', 'Ice Face', 'Power Construct'];
+
+// ---- End of a Pokémon's own turn (after burn/poison and the other end-of-turn effects) ----
+function stage11EndTurn(b, u) {
+  if (!onField(b, u)) return;
+  const a = abil(b, u), o = onceOf(u), base = baseNameOf(u);
+  if (a === 'Hunger Switch' && base === 'Morpeko (Full Belly)') setForm(b, u, trueName(u) === base ? 'Morpeko (Hangry)' : base);
+  if (a === 'Harvest' && u.harvestMode && !u.fainted) {
+    const want = u.harvestMode === 'status' ? !!u.status : u.hp < u.maxHp;
+    if (want) {
+      if (unnerved(b, u)) blog(b, `${u.name} is too nervous to use Harvest (Unnerve).`);
+      else { const r = 1 + randInt(100), ok = sunFor(b, u) || r <= 50;
+        if (!ok) blog(b, `${u.name}'s Harvest found nothing this time (app roll ${r}).`);
+        else if (u.harvestMode === 'status') { blog(b, `${u.name}'s Harvest cured its ${STATUS_NAME[u.status].toLowerCase()} status${sunFor(b, u) ? ' (sun)' : ` (app roll ${r})`}.`); u.status = null; u.slp = 0; }
+        else blog(b, `${u.name}'s Harvest restores ${heal(u, u.maxHp / 8)} HP${sunFor(b, u) ? ' (sun)' : ` (app roll ${r})`}.`); }
+    }
+  }
+  if (o.cudPend && (u.curTurn || 0) > o.cudPend.at) {   // Cud Chew's second helping
+    if (o.cudPend.kind === 'hp' && !unnerved(b, u)) blog(b, `${u.name}'s Cud Chew restores ${heal(u, u.maxHp / 4)} HP again.`);
+    delete o.cudPend;
+  }
+  hpForms(b, u);
+}
+// Cud Chew: the status it cured comes back before the end of its next turn → cured again.
+function cudChewRecure(b, u, st) {
+  const p = u.once?.cudPend; if (!p || p.kind !== 'status' || p.st !== st) return false;
+  u.status = null; u.slp = 0; blog(b, `${u.name}'s Cud Chew cures it again.`); return true;
+}
+
+// ---- What the other side is allowed to see ----
+// Players see a wild Pokémon's ability as "?" until Frisk reveals it or it shows itself in the log. The DM sees everything.
+const abilityHidden = (b, u, isDM) => !isDM && u.side === 'w' && !b.seenAb?.[u.id];
+const shownTypes = (u, isDM) => !isDM && u.illusion ? (getPokemon(u.name)?.types || u.types) : u.types;
+// The Pokémon as a player sees it (for effectiveness hints): Illusion types, and no ability if it's still hidden.
+function viewAs(b, u, isDM) {
+  if (isDM) return u;
+  const hide = abilityHidden(b, u, isDM);
+  return { ...u, types: shownTypes(u, isDM), ...(hide ? { ability: '', ab: {} } : {}) };
+}
+// Mark abilities as seen when the log names the Pokémon and its ability together.
+function markSeen(b, msg) {
+  for (const u of Object.values(b.units || {})) {
+    if (u.side !== 'w' || b.seenAb?.[u.id]) continue;
+    const a = u.ab?.now || u.ability;
+    if (a && msg.includes(a) && (msg.includes(u.name) || (u.realName && msg.includes(u.realName)))) (b.seenAb = b.seenAb || {})[u.id] = true;
+  }
+}
 
 // ---- Shared screen helpers for missions ----
 const WILD_SETUP = final => 'wildSetups/' + String(final).replace(/\//g, '_');   // saved ability + moves per wild Pokémon (any campaign)
@@ -3577,7 +4043,9 @@ function missionSetupDM(el, ctx) {
     for (const l of chosen) { const u = unitFromWild(l.final, N, wildSetups[String(l.final)], true); units[u.id] = u; }
     const noMap = c.settings?.mapMode !== 'app';
     if (noMap) Object.values(units).forEach(u => { if (u.out) u.pos = 'table'; });
-    const b = { units, init: shuffle(Object.keys(units)), names, aiStyle: setup.aiStyle || null, taken: [...(c.takenFinals || [])], noMap, started: false, over: null, turn: null, needs: [], log: [`Mission ${N} battle set up.`], kos: [], catches: [] };
+    const b = { units, init: shuffle(Object.keys(units)), names, aiStyle: setup.aiStyle || null, taken: [...(c.takenFinals || [])], noMap, started: false, over: null, turn: null, needs: [], log: [`Mission ${N} battle set up.`], kos: [], catches: [],
+      choices: [], seenAb: {}, grid: noMap ? null : { cells: mis.cells || [], blocked: mis.blocked || [] } };   // grid: walking distances for Tactical Type
+    Object.values(units).forEach(u => applyIllusion(b, u));
     upd({ phase: 'battle', battle: b });
     DB.update(CAMP(cid), Object.fromEntries(Object.entries(lastParties).map(([pid, ids]) => ['lastParties.' + pid, ids]))).catch(saveErr);   // next mission starts from this party
   };
@@ -3703,11 +4171,27 @@ function battleView(el, ctx) {
       <div class="row">${avail.map(u => `<button class="chip" data-need="${i}" data-unit="${u.id}">${monImg(u.name, u.shiny, 'spr xs')}${esc(u.name)} <span class="muted">${u.hp}/${u.maxHp}</span></button>`).join('')}
       ${n.side === 'w' && isDM ? `<button class="btn small ghost" data-hold="${i}">Not now</button>` : ''}</div></div>`);
   });
+  // Before-battle picks (RKS System / Multitype type, Harvest mode) and choices an ability is waiting on (Gluttony, Imposter)
+  for (const u of pendingPicks(b)) {
+    if (!controls(u)) { waits.push(`<span class="muted">Waiting for ${u.side === 'w' ? 'the DM' : esc(b.names?.[u.owner] || 'a player')} to make a pick for ${esc(u.name)}…</span>`); continue; }
+    if (needsTypePick(u)) waits.push(`<div class="stack" style="--gap:6px"><b>${esc(u.name)}'s ${esc(u.ability)}: pick its type for this battle</b><div class="row" style="gap:6px">${TYPE_LIST.map(t2 => `<button class="chip" data-tpick="${u.id}" data-t="${t2}"><i class="tchip t-${t2}">${t2}</i></button>`).join('')}</div></div>`);
+    else waits.push(`<div class="stack" style="--gap:6px"><b>${esc(u.name)}'s Harvest: lock in what it does this mission</b><div class="row"><button class="chip" data-hpick="${u.id}" data-m="status">Cures its status</button><button class="chip" data-hpick="${u.id}" data-m="hp">Heals 1/8 HP</button></div></div>`);
+  }
+  (b.choices || []).forEach((ch, i) => {
+    const u = b.units[ch.id]; if (!u) return;
+    if (!controls(u)) { waits.push(`<span class="muted">Waiting for ${u.side === 'w' ? 'the DM' : esc(b.names?.[u.owner] || 'a player')} to choose for ${esc(u.name)}…</span>`); return; }
+    waits.push(`<div class="stack" style="--gap:6px"><b>${esc(u.name)} — ${esc(CHOICE_TEXT[ch.kind] || 'choose')}</b><div class="row">${choiceOptions(b, ch).map(o2 => `<button class="chip" data-choice="${i}" data-k="${esc(o2.key)}">${esc(o2.label)}</button>`).join('') || `<button class="chip" data-choice="${i}" data-k="">Skip</button>`}</div></div>`);
+  });
   const bench = isDM ? units.filter(u => u.side === 'w' && !u.out && !u.fainted) : [];
 
   // Wild AI (DM's screen only): work out this step's plan; Suggest shows it with Accept, On plays it
   const aiMode = c.settings?.wildAI || 'off';
   let aiPanel = '', aiDo = null, aiManual = false;
+  if (isDM && aiMode === 'on' && b.started && !b.over) {   // the Wild AI answers its own Pokémon's ability choices (Gluttony: heal)
+    const i = (b.choices || []).findIndex(ch => b.units[ch.id]?.side === 'w');
+    if (i >= 0 && AI_RUN !== 'choice' + (b.log || []).length) { AI_RUN = 'choice' + (b.log || []).length; const ch = b.choices[i], k = choiceOptions(b, ch)[0]?.key || '';
+      setTimeout(() => { const nb = clone(b); resolveChoice(nb, i, k); save(settle(nb)); }, 400); }
+  }
   if (isDM && aiMode !== 'off' && turnU && turnU.side === 'w' && myTurn && b.started && !blocked(b) && !BUI.switching && !BUI.move) {
     const style = b.aiStyle || 'simple', t = b.turn, key = `${t.id}|${(b.log || []).length}|${t.step}|${t.roll || 0}`;
     const tag = `${turnU.name} (AI ${AI_STYLE[style]})`;
@@ -3774,7 +4258,7 @@ function battleView(el, ctx) {
     } else if (t.step === 'tiles') {
       body = `<div>Tap ${t.tiles?.left || 0} open hex${t.tiles?.left === 1 ? '' : 'es'} on the map for ${esc(HAZARD_NAME[t.tiles?.kind] || 'the hazard')}.</div><button class="btn ghost" data-act="tilesdone">Done placing</button>`;
     } else if (t.step === 'move') {
-      body = !t.roll && turnU.v?.bound ? `<div>${esc(turnU.name)} is trapped by ${esc(turnU.v.bound.move)} — it can move only 1 hex.</div><div class="row"><button class="btn primary" data-act="rollmove">Move 1 hex</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
+      body = !t.roll && turnU.v?.bound && abil(b, turnU) !== 'Run Away' ? `<div>${esc(turnU.name)} is trapped by ${esc(turnU.v.bound.move)} — it can move only 1 hex.</div><div class="row"><button class="btn primary" data-act="rollmove">Move 1 hex</button><button class="btn ghost" data-act="stay">Don't move</button></div>`
         : !t.roll ? `<div>Speed ${currentSpeed(turnU, b)} → move die D${tier.die}.</div><div class="row"><button class="btn primary" data-act="rollmove">🎲 Roll D${tier.die} to move</button><button class="btn ghost" data-act="stay">Don't move</button><div class="spacer"></div>${switchBtn}</div>`
         : b.noMap ? `<div>Rolled <b class="rollnum">${t.roll}</b>. Move up to ${t.roll} hexes on the table.</div><div class="row"><button class="btn primary" data-act="stay">Done moving</button><div class="spacer"></div>${switchBtn}</div>`
         : `<div>Rolled <b class="rollnum">${t.roll}</b>. Tap a lit hex.</div><div class="row"><button class="btn" data-act="stay">Stay here</button><div class="spacer"></div>${switchBtn}</div>`;
@@ -3786,9 +4270,9 @@ function battleView(el, ctx) {
         const redir = redirectFor(b, mis, turnU, mv);   // Follow Me / Rage Powder / Spotlight
         if (redir) { if (R.kind === 'line') R.dirs.forEach(d => { if (!d.hit.some(x => x.id === redir.id)) d.hit = []; }); else if (R.units) R.units = R.units.filter(x => x.id === redir.id); }
         const isFoe = x => x.side !== turnU.side;
-        const card = (x, on, attr) => { const e = effAgainst(b, turnU, x, mv);
+        const card = (x, on, attr) => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv);
           return `<button class="target ${on ? 'on' : ''} side-${x.side}" ${attr}>${monImg(x.name, x.shiny, 'spr sm')}<div><b>${esc(x.name)}</b> <span class="muted">${isFoe(x) ? esc(sideName(b, x)) : 'ally'}</span>
-            <div class="types">${x.types.map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${esc(abil(b, x) || '')}</div>${hpBar(x)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
+            <div class="types">${shownTypes(x, isDM).map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${abilityHidden(b, x, isDM) ? '?' : esc(abil(b, x) || '')}</div>${hpBar(x)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
         let pick = '', allyBtn = '';
         const allyToggle = n => n ? `<button class="btn small ghost" data-act="allies">${BUI.allies ? 'Hide allies' : `Show allies (${n})`}</button>` : '';
         if (R.kind === 'self') pick = `<div class="muted">${R.sh.kind === 'field' ? 'Affects the field — no target to pick.' : `Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.`}</div>`;
@@ -3798,7 +4282,7 @@ function battleView(el, ctx) {
           if (BUI.dir != null && !shown.some(d => d.dir === BUI.dir)) BUI.dir = null;
           BUI.targets = BUI.dir == null ? [] : R.dirs[BUI.dir].hit.map(x => x.id);
           pick = `<div><b>Choose a direction</b> <span class="muted">(${esc(R.sh.text)}: hits every Pokémon in the first ${R.sh.n} hex${R.sh.n > 1 ? 'es' : ''}, allies too — or tap a lit hex)</span></div>
-            <div class="targets">${shown.map(d => `<button class="target dir ${BUI.dir === d.dir ? 'on' : ''}" data-dir="${d.dir}"><span class="arrow">${DIR_ARROW[d.dir]}</span><div class="stack" style="--gap:4px">${d.hit.map(x => { const e = effAgainst(b, turnU, x, mv); return `<div class="row" style="--gap:6px">${monImg(x.name, x.shiny, 'spr xs')}<b>${esc(x.name)}</b>${isFoe(x) ? '' : ' <span class="muted">ally</span>'}${e !== null ? ` <span class="eff e${String(e).replace('.', '')}">${effShort(e)}</span>` : ''}</div>`; }).join('')}</div></button>`).join('') || '<div class="muted">No enemy in reach. Move closer, or end your turn.</div>'}</div>`;
+            <div class="targets">${shown.map(d => `<button class="target dir ${BUI.dir === d.dir ? 'on' : ''}" data-dir="${d.dir}"><span class="arrow">${DIR_ARROW[d.dir]}</span><div class="stack" style="--gap:4px">${d.hit.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv); return `<div class="row" style="--gap:6px">${monImg(x.name, x.shiny, 'spr xs')}<b>${esc(x.name)}</b>${isFoe(x) ? '' : ' <span class="muted">ally</span>'}${e !== null ? ` <span class="eff e${String(e).replace('.', '')}">${effShort(e)}</span>` : ''}</div>`; }).join('')}</div></button>`).join('') || '<div class="muted">No enemy in reach. Move closer, or end your turn.</div>'}</div>`;
           allyBtn = allyToggle(allyOnly);
         } else if (R.kind === 'aoe') {
           BUI.targets = R.units.map(x => x.id);
@@ -3813,7 +4297,7 @@ function battleView(el, ctx) {
           allyBtn = allyToggle(R.units.filter(x => !isFoe(x)).length);
         }
         const ready = R.kind === 'self' || BUI.targets.length;
-        body = `<div class="opt wide on" style="cursor:default">${moveCardHTML(mv.name)}</div>
+        body = `<div class="opt wide on" style="cursor:default">${moveCardHTML(mv.name, ppPill(turnU, mv.name))}</div>
           ${t.called ? `<div class="banner warn">${esc(t.called)} called ${esc(mv.name)} — pick its target.</div>` : ''}${redir ? `<div class="banner warn">${esc(redir.name)} is drawing attention — this move must aim at it.</div>` : ''}
           ${pick}${allyBtn ? `<div class="row">${allyBtn}</div>` : ''}
           <div class="row">${t.called ? `<button class="btn ghost" data-act="skip">Skip it</button>` : `<button class="btn ghost" data-act="back">Back</button>`}<div class="spacer"></div><button class="btn primary" data-act="use" ${ready ? '' : 'disabled'}>Use ${esc(mv.name)}</button></div>`;
@@ -3830,13 +4314,13 @@ function battleView(el, ctx) {
           const m2 = getMove(name); if (!m2) return '';
           const R = moveReach(b, mis, turnU, m2); if (R.kind === 'self') return '';
           const es = reachUnits(R).filter(x => x.side !== turnU.side);
-          return `<div class="reach">${es.map(x => { const e = effAgainst(b, turnU, x, m2); return `<span class="rchip ${e === null ? '' : 'e' + String(e).replace('.', '')}">${monImg(x.name, x.shiny, 'spr xs')}${e === null ? '' : effShort(e)}</span>`; }).join('') || '<span class="muted" style="font-size:.8rem">No enemy in reach</span>'}</div>`;
+          return `<div class="reach">${es.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), m2); return `<span class="rchip ${e === null ? '' : 'e' + String(e).replace('.', '')}">${monImg(x.name, x.shiny, 'spr xs')}${e === null ? '' : effShort(e)}</span>`; }).join('') || '<span class="muted" style="font-size:.8rem">No enemy in reach</span>'}</div>`;
         };
-        const forced = forcedMove(b, turnU), sleepy = t.sleepAct;
-        const list = sleepy ? (turnU.moves || []).filter(m => ['Snore', 'Sleep Talk'].includes(m)) : forced ? [forced] : (turnU.moves || []);
+        const forced = forcedMove(b, turnU), sleepy = t.sleepAct, struggling = !sleepy && !forced && usableMoves(b, turnU)[0] === 'Struggle';
+        const list = sleepy ? (turnU.moves || []).filter(m => ['Snore', 'Sleep Talk'].includes(m)) : forced ? [forced] : struggling ? ['Struggle'] : (turnU.moves || []);
         const noSwitch = sleepy || t.bonus || turnU.v?.charging || turnU.v?.locked;
-        const forcedWhy = sleepy ? `${turnU.name} is asleep — it can only use Snore or Sleep Talk.` : t.bonus ? 'Instruct: it uses its last move again (no walking).' : turnU.v?.charging ? `It finishes ${forced} now.` : turnU.v?.locked ? `It's locked into ${forced}.` : turnU.v?.encore ? `Encore: it must use ${forced}.` : '';
-        body = `${locked ? `<div class="muted">Gorilla Tactics: locked into ${esc(locked)} until it switches out.</div>` : ''}${forcedWhy ? `<div class="muted">${esc(forcedWhy)}</div>` : ''}<div class="movegrid">${list.filter(m => !locked || m === locked).map(m => { const why = forced ? '' : moveBlockedWhy(b, turnU, m); return `<button class="opt ${why ? 'locked' : ''}" data-move="${esc(m)}" ${why ? 'disabled' : ''}>${moveCardHTML(m, why ? `<span class="pill">🔒 ${esc(why)}</span>` : chips(m))}</button>`; }).join('')}</div>
+        const forcedWhy = struggling ? `${turnU.name} has no move it can use — it must Struggle (typeless, loses 1/4 of its max HP).` : sleepy ? `${turnU.name} is asleep — it can only use Snore or Sleep Talk.` : t.bonus ? 'Instruct: it uses its last move again (no walking).' : turnU.v?.charging ? `It finishes ${forced} now.` : turnU.v?.locked ? `It's locked into ${forced}.` : turnU.v?.encore ? `Encore: it must use ${forced}.` : '';
+        body = `${locked ? `<div class="muted">Gorilla Tactics: locked into ${esc(locked)} until it switches out.</div>` : ''}${forcedWhy ? `<div class="muted">${esc(forcedWhy)}</div>` : ''}<div class="movegrid">${list.filter(m => !locked || m === locked).map(m => { const why = forced || struggling ? '' : moveBlockedWhy(b, turnU, m); return `<button class="opt ${why ? 'locked' : ''}" data-move="${esc(m)}" ${why ? 'disabled' : ''}>${moveCardHTML(m, ppPill(turnU, m) + (why ? `<span class="pill">🔒 ${esc(why)}</span>` : chips(m)))}</button>`; }).join('')}</div>
           <div class="row">${noSwitch ? '' : trap ? `<span class="muted">Can't switch: ${esc(trap)}</span>` : `<button class="btn" data-act="switch">⇄ Switch</button>`}<div class="spacer"></div><button class="btn ghost" data-act="skip">End turn without a move</button></div>`;
       }
     }
@@ -3847,7 +4331,7 @@ function battleView(el, ctx) {
   const unitRow = u => `<div class="unitrow ${u.fainted ? 'fainted' : ''} ${b.turn?.id === u.id ? 'now' : ''}" ${isDM ? `data-edit="${u.id}"` : ''}>
       <span class="ring" style="border-color:${ringOf(u)}">${monImg(u.name, u.shiny, 'spr xs')}</span>
       <div style="flex:1;min-width:0"><div><b>${esc(u.name)}</b> <span class="muted" style="font-size:.85rem">Lv ${u.level}${u.side === 'p' ? ' · ' + esc(b.names?.[u.owner] || '') : ''}${!u.out && !u.fainted ? ' · bench' : ''}${u.kos ? ` · ${u.kos} KO` : ''}</span> ${statusChip(u)} ${stageChips(u)} ${volChips(b, u)}</div>
-        <div class="abil">${esc(abil(b, u) || u.ability || '')}${(u.ab?.now && u.ab.now !== u.ability) ? ` <span class="muted">(was ${esc(u.ability)})</span>` : ''} ${abilityTag(abil(b, u) || u.ability)}</div>${hpBar(u)}</div></div>`;
+        <div class="abil">${abilityHidden(b, u, isDM) ? '<span class="muted">Ability: ?</span>' : `${esc(abil(b, u) || u.ability || '')}${(u.ab?.now && u.ab.now !== u.ability) ? ` <span class="muted">(was ${esc(u.ability)})</span>` : ''} ${abilityTag(abil(b, u) || u.ability)}`}${(isDM || (u.side === 'p' && u.owner === viewer)) && u.illusion ? ` <span class="pill warn">Really ${esc(u.realName)} (Illusion)</span>` : ''} <span class="muted" style="font-size:.8rem">${shownTypes(u, isDM).join(' / ')}</span></div>${hpBar(u)}</div></div>`;
   // Turn meters: each Pokémon's meter filling toward its Order number (the one acting shows full)
   const meterOf = u => { const ord = tierOf(u, b).order; return b.turn?.id === u.id ? { ord, val: ord, pct: 100 } : { ord, val: Math.min(u.meter, ord), pct: Math.min(100, 100 * u.meter / ord) }; };
   const meterRows = fieldUnits(b).map(u => ({ u, m: meterOf(u) })).sort((p, q) => (q.m.pct - p.m.pct) || (p.m.ord - q.m.ord)).map(({ u, m }) =>
@@ -3909,6 +4393,9 @@ function battleView(el, ctx) {
     if (nb.noMap) { u.pos = 'table'; blog(nb, `${u.name} was sent out.`); if (nb.started) { enterField(nb, u); applyHealingWish(nb, u); } } else BUI.place = u.id;
     save(settle(nb));
   });
+  $$('[data-tpick]', x => { const nb = clone(b), u = nb.units[x.dataset.tpick]; u.typePick = x.dataset.t; u.types = [u.typePick]; blog(nb, u.side === 'w' ? `${u.name} is ${u.typePick} type this battle.` : `${u.name}'s ${u.ability}: it is ${u.typePick} type this battle.`); save(settle(nb)); });
+  $$('[data-hpick]', x => { const nb = clone(b), u = nb.units[x.dataset.hpick]; u.harvestMode = x.dataset.m; blog(nb, u.side === 'w' ? `The DM locked in a before-battle pick for ${u.name}.` : `${u.name}'s Harvest is set to ${u.harvestMode === 'hp' ? 'heal HP' : 'cure its status'} this mission.`); save(settle(nb)); });
+  $$('[data-choice]', x => { const nb = clone(b); resolveChoice(nb, +x.dataset.choice, x.dataset.k); save(settle(nb)); });
   $$('[data-hold]', x => { const nb = clone(b); nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.hold); save(settle(nb)); });
   $$('[data-move]', x => { BUI.move = x.dataset.move; BUI.targets = []; BUI.dir = null; BUI.allies = false; ctx.redraw(); });
   $$('[data-tgt]', x => { const mv = getMove(BUI.move); toggleTarget(x.dataset.tgt, mv ? moveReach(b, mis, turnU, mv).max ?? 1 : 1); });
@@ -3933,6 +4420,7 @@ function battleView(el, ctx) {
     if (a === 'startturns') {
       if (!units.some(u => u.side === 'w' && onField(b, u))) return toast('Send out at least one wild Pokémon');
       if (needsPlacement(b).length) return toast('Place every Pokémon first');
+      if (pendingPicks(b).length) return toast(`Waiting on before-battle picks: ${pendingPicks(b).map(u => u.name).join(', ')}`);
       const nb = clone(b); nb.started = true; blog(nb, 'The battle begins!');
       fieldUnits(nb).sort((p, q) => currentSpeed(q, nb) - currentSpeed(p, nb)).forEach(u => enterField(nb, u));   // entry abilities, fastest first
       return save(settle(nb));
@@ -3943,7 +4431,7 @@ function battleView(el, ctx) {
     if (a === 'skip') { const nb = clone(b); blog(nb, `${turnU.name} didn't use a move.`); BUI = {}; return save(finishTurnSafe(nb)); }
     if (a === 'stay') { const nb = clone(b); nb.turn.from = turnU.pos; nb.turn.step = 'act'; return save(nb); }
     if (a === 'tilesdone') { const nb = clone(b); delete nb.turn.tiles; blog(nb, 'Done placing tiles.'); return save(finishTurnSafe(nb)); }
-    if (a === 'rollmove' && turnU.v?.bound) { const nb = clone(b); nb.turn.roll = 1; blog(nb, `${turnU.name} is bound — it can move only 1 hex.`); return save(nb); }
+    if (a === 'rollmove' && turnU.v?.bound && abil(b, turnU) !== 'Run Away') { const nb = clone(b); nb.turn.roll = 1; blog(nb, `${turnU.name} is bound — it can move only 1 hex.`); return save(nb); }
     if (a === 'confuse') {
       const nb = clone(b), me = nb.units[turnU.id], cf = me.v.confused;
       if (cf.left <= 0) { delete me.v.confused; blog(nb, `${me.name} snapped out of its confusion!`); nb.turn.step = afterConfuseStep(nb, me); return save(nb); }
@@ -4290,6 +4778,7 @@ async function finishMission(ctx) {
   const { c, mis, cid, misNum, teams } = ctx, b = mis.battle, N = misNum, L = N + 1;
   if (!confirm(`Finish Mission ${N}? Everyone's Pokémon go to level ${L}, catches join their teams, and players get their re-rolls and EVs.`)) return;
   const kosBy = {}; for (const k of b.kos || []) kosBy[k.by] = (kosBy[k.by] || 0) + 1;
+  const bonusMsgs = [];   // Honey Gather / Pickup / Ball Fetch bonus re-rolls (rolled by the app)
   try {
     // Snapshot every team first, so Restart mission can undo the level-ups, EVs, catches and re-rolls
     if (!mis.snapshot) await DB.update(MISSION(cid, N), { snapshot: { at: Date.now(), takenFinals: c.takenFinals || [], teams: Object.fromEntries((c.players || []).map(p => [p.id, teams[p.id] || []])) } });
@@ -4312,7 +4801,9 @@ async function finishMission(ctx) {
         }
         const sk = (b.sketches || []).filter(x => x.ref === m.uid).map(x => x.move);   // Sketch: copied moves are kept for good
         if (sk.length) { n.tms = [...new Set([...(n.tms || []), ...sk])]; n.sketched = [...(n.sketched || []), ...sk]; }
-        const k = kosBy['p_' + m.uid] || 0, left = (m.rerolls?.left || 0) + k;   // unused re-rolls carry over
+        const bu = b.units?.['p_' + m.uid], bonus = bu ? missionBonusRerolls(bu) : [];
+        if (bonus.length) bonusMsgs.push(`${m.species}: +${bonus.length} re-roll (${bonus.join(', ')})`);
+        const k = kosBy['p_' + m.uid] || 0, left = (m.rerolls?.left || 0) + k + bonus.length;   // unused re-rolls carry over
         n.rerolls = left ? { mission: N, left } : null; if (!n.reroll) n.reroll = null;
         return n;
       });
@@ -4327,7 +4818,7 @@ async function finishMission(ctx) {
     const caught = (b.catches || []).map(x => x.final);
     await DB.update(CAMP(cid), { takenFinals: [...new Set([...(c.takenFinals || []), ...caught])] });
     await DB.update(MISSION(cid, N), { phase: 'after' });
-    toast(`Mission ${N} complete!`);
+    toast(`Mission ${N} complete!${bonusMsgs.length ? ' Bonus: ' + bonusMsgs.join(' · ') : ''}`);
   } catch (e) { saveErr(e); }
 }
 const abilityBySlot = (species, slot) => { const p = getPokemon(species); if (!p) return null; return slot === 'H' ? (p.hidden || p.abilities?.[0]) : slot === '2' ? (p.abilities?.[1] || p.abilities?.[0]) : p.abilities?.[0]; };
@@ -4433,12 +4924,13 @@ function rerollModal(m, saveMon, mode, N) {
     if (!rr) {
       card.innerHTML = `<h2 style="margin:0">Re-roll for ${esc(m.species)}</h2><div class="muted">${m.rerolls.left} left (one per KO). Pick what to roll for. You can keep the result or discard it.</div>
         ${planSummary(m) || '<div class="muted" style="font-size:.9rem">Tip: set a Plan for this Pokémon and the app flags what to re-roll.</div>'}
-        <div class="optgrid">${[['iv', 'IV', 'D6+D12+D20 → put it on any stat'], ['nature', 'Nature', 'D100'], ['ability', 'Ability', 'D100'], ['shiny', 'Shiny', 'D6+D12+D20 total of 3'], ['tm', 'TM', 'Pick a TM-type move']].map(([k, l, d]) => `<button class="opt ${want[k] ? 'want' : ''}" data-cat="${k}"><b>${l}${want[k] ? ' ★' : ''}</b><small>${d}</small>${want[k] ? '<small class="up">Your plan wants this</small>' : ''}</button>`).join('')}</div>
+        <div class="optgrid">${[['iv', 'IV', 'D6+D12+D20 → put it on any stat'], ['nature', 'Nature', 'D100'], ['ability', 'Ability', 'D100'], ['shiny', 'Shiny', 'D6+D12+D20 total of 3'], ['tm', 'TM', 'Pick a TM-type move'], ['pp', 'PP +1', 'No dice: +1 max PP on one move']].map(([k, l, d]) => `<button class="opt ${want[k] ? 'want' : ''}" data-cat="${k}"><b>${l}${want[k] ? ' ★' : ''}</b><small>${d}</small>${want[k] ? '<small class="up">Your plan wants this</small>' : ''}</button>`).join('')}</div>
         <div class="row"><div class="spacer"></div><button class="btn ghost" data-x>Close</button></div>`;
       card.querySelector('[data-x]').onclick = close;
       card.querySelectorAll('[data-cat]').forEach(x => x.onclick = async () => {
         const cat = x.dataset.cat;
         if (cat === 'tm') { close(); return tmModal(m, saveMon); }
+        if (cat === 'pp') { close(); return ppModal(m, saveMon); }
         const dice = cat === 'nature' || cat === 'ability' ? [100] : [6, 12, 20];
         const r = await rollDice({ title: `${m.species}: ${cat === 'iv' ? 'IV' : cat} re-roll`, dice, mode });
         if (!r) return;
@@ -4465,6 +4957,24 @@ function rerollModal(m, saveMon, mode, N) {
       else clear({ shiny: true });
     });
     card.querySelector('[data-discard]').onclick = () => clear({});
+  });
+}
+// PP re-roll: +1 max PP on one of its moves (no dice), up to the games' cap (base PP × 1.6). Kept for good.
+function ppModal(m, saveMon) {
+  const moves = [...new Set([...(m.moves || []), ...movesKnown(m)])].filter(n => getMove(n)?.pp);
+  openModal((card, close) => {
+    const row = n => { const base = getMove(n).pp, bon = m.ppBonus?.[n] || 0, cap = ppCap(n), now = Math.min(cap, base + bon), full = now >= cap;
+      return `<button class="opt wide ${full ? 'locked' : ''}" data-pp="${esc(n)}" ${full ? 'disabled' : ''}>${moveCardHTML(n, `<span class="pill">PP ${now}${full ? ' (max)' : ` → ${now + 1}`} / cap ${cap}</span>`)}</button>`; };
+    const four = moves.filter(n => (m.moves || []).includes(n)), rest = moves.filter(n => !(m.moves || []).includes(n));
+    card.innerHTML = `<h2 style="margin:0">PP +1 for ${esc(m.species)}</h2><div class="muted">Uses 1 re-roll (${m.rerolls.left} left). The move keeps the extra PP for good.</div>
+      <div class="stack" style="max-height:55vh;overflow:auto">${four.map(row).join('')}${rest.length ? `<div class="muted" style="margin-top:6px">Other moves it knows</div>${rest.map(row).join('')}` : ''}</div>
+      <div class="row"><div class="spacer"></div><button class="btn ghost" data-x>Cancel</button></div>`;
+    card.querySelector('[data-x]').onclick = close;
+    card.querySelectorAll('[data-pp]').forEach(x => x.onclick = async () => {
+      const n = x.dataset.pp;
+      await saveMon(m.uid, { ppBonus: { ...(m.ppBonus || {}), [n]: (m.ppBonus?.[n] || 0) + 1 }, rerolls: { ...m.rerolls, left: m.rerolls.left - 1 } });
+      close(); toast(`${n} now has ${maxPPOf(n, (m.ppBonus?.[n] || 0) + 1)} PP.`);
+    });
   });
 }
 // TM re-roll: pick any TM / Egg / Tutor / Special move this Pokémon can learn and is allowed at its level.
