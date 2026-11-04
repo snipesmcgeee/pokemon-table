@@ -1457,13 +1457,32 @@ function unitFromMon(pid, mon) {
     types: getPokemon(mon.species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ability: lockedAbility(mon.final) || mon.ability, moves: mon.moves || [], ivs: mon.ivs || null, sketched: (mon.sketched || []).length,
     calc: { ivs: mon.ivs || {}, evs: mon.evs || {}, nature: mon.nature || null }, ppBonus: mon.ppBonus || {} }));   // calc: to work out battle-form stats
 }
+// Mews Arena finale (Jack, Oct 29 2026): Mission 100's Arceus fights as Arceus (Multitype) first; when it's knocked out it comes
+// straight back as Arceus (Altered) (Tactical Type) in the same hex at full HP. Only that second KO counts (catch + re-roll).
+// Just this mission of this campaign — not a general rule.
+const FINALE = { mission: 100, final: 306, first: 'Arceus', firstAbility: 'Multitype', then: 'Arceus (Altered)', thenAbility: 'Tactical Type' };
+const isFinaleWild = (final, level) => String(final) === String(FINALE.final) && level === FINALE.mission;
+// Mews Arena Mission 12 "Rivalry" (Jack, Oct 31 2026 — a starting point, may change after testing):
+// Zangoose and Seviper only target each other. KO'd by the rival → full HP, +1 Atk/Def/SpA/SpD/Spe, placed next to the rival as far
+// from the trainers as possible (no limit; no KO credit). A trainer KO is a normal KO + catch, and the survivor keeps its boosts and
+// turns on the trainers. The Rockruff fight normally, but nothing the trainers do affects them until Zangoose and Seviper are both down.
+const FEUD = { mission: 12, pair: [219, 220], shielded: [452, 453, 454] };
+const wildIdOf = final => 'w_' + String(final).replace(/\W/g, '_');
+function feudSetup(final, level) {
+  if (level !== FEUD.mission) return {};
+  const i = FEUD.pair.map(String).indexOf(String(final));
+  if (i >= 0) return { feud: wildIdOf(FEUD.pair[1 - i]), feudPair: true };
+  return FEUD.shielded.map(String).includes(String(final)) ? { feudShield: true } : {};
+}
 function unitFromWild(final, level, setup, random = false) {   // random = true when a battle starts (preview uses an even split)
-  const species = formAtLevel(final, level);
+  const finale = isFinaleWild(final, level);
+  const species = finale ? FINALE.first : formAtLevel(final, level);
   const ivs = wildIVs(level, random), evs = wildEVs(level, random);
   const stats = statsFor(species, ivs, evs, level, null);
   return initPP(newUnit({ id: 'w_' + String(final).replace(/\W/g, '_'), side: 'w', owner: 'dm', ref: final, final, name: species, level, shiny: false,
     types: getPokemon(species)?.types || [], stats, maxHp: stats.hp, hp: stats.hp, ivs, evs, calc: { ivs, evs, nature: null },
-    ability: lockedAbility(final) || setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level) }));
+    ability: finale ? FINALE.firstAbility : lockedAbility(final) || setup?.ability || abilityOptions(species)[0] || '', moves: setup?.moves?.length ? setup.moves : defaultWildMoves(species, level),
+    ...(finale ? { phase2: FINALE.then } : {}), ...feudSetup(final, level) }));
 }
 
 // ---- The turn meter ----
@@ -1524,10 +1543,11 @@ function finishTurn(b) {
       if (u.status === 'brn') d = Math.max(1, Math.floor(u.maxHp / (a === 'Heatproof' ? 32 : 16)));
       if (u.status === 'psn') d = Math.max(1, Math.floor(u.maxHp / 8));
       if (u.status === 'tox') { d = Math.max(1, Math.floor(u.maxHp * Math.max(1, u.tox) / 16)); u.tox = Math.max(1, u.tox) + 1; }
-      if (d) { d = Math.min(u.hp, d); u.hp -= d; blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) faint(b, u, null); }
+      if (d) { d = Math.min(u.hp, d); u.hp -= d; blog(b, `${u.name} is hurt by its ${STATUS_NAME[u.status].toLowerCase()} status (−${d} HP).`); if (u.hp === 0) { u.koBy = u.statusSrc; faint(b, u, null); delete u.koBy; } }
     }
     endOfTurnEffects(b, u);
     stage11EndTurn(b, u);
+    u.endDist = distMap(b, u);   // for Pursuit
   }
   if (u && !bonusTurn) { tickField(b, u); tickTimers(b, u); }
   weatherForms(b); commanderCheck(b); fieldUnits(b).forEach(x => checkConsumables(b, x));
@@ -1537,8 +1557,45 @@ function finishTurn(b) {
   }
   startTurn(b);
 }
+// Mews Arena finale: Arceus is knocked out and returns as Arceus (Altered). No KO credit or catch for this first KO.
+function secondPhase(b, v, killer) {
+  const was = v.name;
+  restoreIllusion(b, v);
+  blog(b, `${was} was knocked out… but it rises again as ${v.phase2}!`);
+  note(b, { k: 'faint', to: v.id, side: v.side, owner: v.owner });
+  dropVolatiles(b, v);
+  if (killer && killer.id !== v.id) onKO(b, killer, v);   // Moxie, Battle Bond … still react to the knockout
+  const name = v.phase2; delete v.phase2; delete v.baseName; delete v.typePick;
+  const st = statsFor(name, v.calc?.ivs || {}, v.calc?.evs || {}, v.level, v.calc?.nature);
+  Object.assign(v, { name, ability: FINALE.thenAbility, ab: {}, types: [...(getPokemon(name)?.types || v.types)], stats: st, maxHp: st.hp, hp: st.hp,
+    status: null, slp: 0, tox: 0, stages: Object.fromEntries(STAGE_KEYS.map(k => [k, 0])), meter: 0, v: {}, once: {} });
+  initPP(v);
+  enterField(b, v);
+}
+// ---- Mission 12 feud helpers ----
+const feudActive = b => Object.values(b.units).some(x => x.feudPair && !x.fainted);   // Zangoose or Seviper still standing
+// Who this Pokémon may target: a feuding Pokémon only its rival; everyone else the other side
+const isEnemy = (b, u, x) => u.feud ? x.id === u.feud : x.side !== u.side;
+// The Rockruff are untouchable by the trainers while the feud goes on
+const shieldedFrom = (b, t, src) => !!(t?.feudShield && src && src.side === 'p' && t.side !== 'p' && feudActive(b));
+// KO'd by its rival: back to full HP with +1 to its five stats, next to the rival and as far from the trainers as possible
+function feudRevive(b, v, rival) {
+  dropVolatiles(b, v);
+  v.hp = v.maxHp; v.status = null; v.slp = 0; v.tox = 0; delete v.koBy;
+  for (const k of ['atk', 'def', 'spa', 'spd', 'spe']) v.stages[k] = Math.min(6, (v.stages[k] || 0) + 1);
+  blog(b, `${v.name} was knocked down by ${rival.name}… and gets right back up, angrier than ever! Full HP, +1 ATK, DEF, SP ATK, SP DEF, SPD.`);
+  if (b.noMap || !rival.pos || rival.pos === 'table') { blog(b, `Place ${v.name} next to ${rival.name}, as far from the trainers as possible.`); return; }
+  const cells = new Set(b.grid?.cells || []), bl = new Set(b.grid?.blocked || []), occ = occupied(b); occ.delete(v.pos);
+  const [q, r0] = rival.pos.split(',').map(Number), trainers = fieldUnits(b).filter(x => x.side === 'p' && x.pos && x.pos !== 'table');
+  const far = k => trainers.length ? Math.min(...trainers.map(x => hexDistance(k, x.pos))) : 0;
+  const spots = NEIGHBORS.map(([dq, dr]) => (q + dq) + ',' + (r0 + dr)).filter(k => (!cells.size || cells.has(k)) && !bl.has(k) && !occ.has(k));
+  if (spots.length) { v.pos = spots.sort((p2, q2) => far(q2) - far(p2))[0]; blog(b, `${v.name} lands next to ${rival.name}.`); }
+}
 // A Pokémon faints: KO credit, catch, and who must send out a replacement.
 function faint(b, v, killer) {
+  if (v.phase2 && !v.fainted) return secondPhase(b, v, killer);
+  if (v.feud && !v.fainted && ((killer && killer.id === v.feud) || (!killer && v.koBy === v.feud))) return feudRevive(b, v, b.units[v.feud]);
+  if (v.feud) for (const x of Object.values(b.units)) if (x.feud === v.id) { delete x.feud; blog(b, `With its rival gone, ${x.name} turns on the trainers!`); }
   const bond = v.v?.destinyBond;
   restoreIllusion(b, v); revertForm(b, v);   // it faints as its real self (catches record the real species)
   if (v.v?.grudge && b.curMove && b.curMove.by !== v.id && b.units[b.curMove.by]?.side !== v.side) {   // Grudge: the move that knocked it out loses all its PP
@@ -1591,6 +1648,7 @@ function legalPlayerHexes(b, mis) {
 // Field for whole-field moves, otherwise Line 1.
 const FIELD_TARGETS = ['Whole field', "Foes' side"];
 function shapeOf(mv) {
+  if (mv?.name === 'Me First') return { kind: 'self', text: 'Self' };   // this game: a set-up move (Jack, Oct 30 2026)
   if (mv?.shape) return mv.shape;
   if (SELF_TARGETS.includes(mv?.target)) return { kind: 'self', text: 'Self', auto: true };
   if (FIELD_TARGETS.includes(mv?.target)) return { kind: 'field', text: 'Field', auto: true };
@@ -1644,7 +1702,7 @@ function moveReach(b, mis, u, mv) {
   }
   if (sh.kind === 'range') return { sh, kind: 'range', max: sh.count, units: others.filter(x => hexDistance(u.pos, x.pos) <= sh.n && lineOfSight(mis, u.pos, x.pos)) };
   const hexes = (mis.cells || []).filter(k => k !== u.pos && hexDistance(u.pos, k) <= sh.n);
-  return { sh, kind: 'aoe', hexes, units: others.filter(x => hexDistance(u.pos, x.pos) <= sh.n && (!sh.foes || x.side !== u.side)) };
+  return { sh, kind: 'aoe', hexes, units: others.filter(x => hexDistance(u.pos, x.pos) <= sh.n && (!sh.foes || isEnemy(b, u, x))) };
 }
 const reachUnits = r => r.kind === 'line' ? [...new Map(r.dirs.flatMap(d => d.hit).map(x => [x.id, x])).values()] : r.units || [];
 // Effectiveness as it would land: type chart (with Scrappy / strong winds) and abilities that stop the move (×0).
@@ -1740,7 +1798,7 @@ function mimicry(b, u) {
 }
 const heal = (u, amt) => { if (u.v?.healBlock > 0) return 0; const h = Math.min(u.maxHp - u.hp, Math.max(1, Math.floor(amt))); u.hp += h; return h; };
 const hurt = (b, u, amt, why, killer = null) => {
-  if (abil(b, u) === 'Magic Guard' || u.fainted) return 0;
+  if (abil(b, u) === 'Magic Guard' || u.fainted || shieldedFrom(b, u, killer)) return 0;
   const d = Math.min(u.hp, Math.max(1, Math.floor(amt))); u.hp -= d;
   blog(b, `${u.name} lost ${d} HP (${why}).`);
   if (u.hp === 0) faint(b, u, killer); else checkConsumables(b, u);
@@ -1754,6 +1812,7 @@ function applyStages(u, ch, b, src) {
   let droppedByFoe = false, raised = {};
   for (const [k, v] of Object.entries(changes)) {
     if (v < 0 && src && src.id !== u.id && b) {
+      if (shieldedFrom(b, u, src)) { out.push(`${STAGE_LABEL[k]} unaffected (the feud protects it)`); continue; }
       const da = defAb(b, src, u);
       const blocker = ['Clear Body', 'White Smoke', 'Full Metal Body'].includes(da) || (da === 'Hyper Cutter' && k === 'atk') || (da === 'Big Pecks' && k === 'def')
         || (["Keen Eye", "Mind's Eye", 'Illuminate'].includes(da) && k === 'acc') || (allies(b, u).concat(u).some(x => abil(b, x) === 'Flower Veil') && u.types.includes('Grass'));
@@ -1782,6 +1841,7 @@ const STATUS_BLOCK = { Insomnia: ['slp'], 'Vital Spirit': ['slp'], 'Sweet Veil':
   'Water Veil': ['brn'], 'Water Bubble': ['brn'], 'Thermal Exchange': ['brn'], 'Magma Armor': ['frz'], 'Purifying Salt': ['brn', 'par', 'psn', 'tox', 'slp', 'frz'], Comatose: ['brn', 'par', 'psn', 'tox', 'slp', 'frz'] };
 function canGetStatus(u, st, move, b, src) {
   if (u.status || u.fainted) return false;
+  if (b && shieldedFrom(b, u, src)) return false;
   const corrosion = src && b && abil(b, src) === 'Corrosion' && ['psn', 'tox'].includes(st);
   if (STATUS_IMMUNE[st].some(t => u.types.includes(t)) && !corrosion) return false;
   if (move?.name === 'Thunder Wave' && effOf('Electric', u.types) === 0) return false;
@@ -1801,7 +1861,7 @@ function canGetStatus(u, st, move, b, src) {
 }
 // Give a status (with sleep turns rolled by the caller), plus Synchronize.
 function giveStatus(b, u, st, src, sleepTurns) {
-  u.status = st; if (st === 'tox') u.tox = 1; if (st === 'slp') u.slp = sleepTurns || 1;
+  u.status = st; u.statusSrc = src?.id || null; if (st === 'tox') u.tox = 1; if (st === 'slp') u.slp = sleepTurns || 1;
   blog(b, `${u.name} is now ${STATUS_NAME[st].toLowerCase()}${st === 'slp' ? ` (${u.slp} turn${u.slp > 1 ? 's' : ''})` : ''}.`);
   if (src && src.id !== u.id && abil(b, u) === 'Synchronize' && ['brn', 'par', 'psn', 'tox'].includes(st) && canGetStatus(src, st, null, b, u)) {
     blog(b, `${u.name}'s Synchronize passes it back!`); giveStatus(b, src, st, null);
@@ -2120,7 +2180,7 @@ async function afterHit(b, att, def, mv, dealt, crit, hpBefore, roll) {
       blog(b, `${def.name}'s ${da}: it retreats!`); leaveField(b, def); def.out = false; def.pos = null; b.needs = [...(b.needs || []), { side: def.side, owner: def.owner }];
     }
   }
-  if (dealt > 0 && !att.fainted) {   // effects that hit back at the attacker
+  if (dealt > 0 && !att.fainted && !shieldedFrom(b, att, def)) {   // effects that hit back at the attacker
     if (contact && !def.fainted || contact && ['Aftermath', 'Innards Out'].includes(da) || contact) {
       if (contact && da === 'Static') await tryStatus(att, 'par', def, 30, `${def.name}'s Static`);
       if (contact && da === 'Flame Body') await tryStatus(att, 'brn', def, 30, `${def.name}'s Flame Body`);
@@ -2328,6 +2388,7 @@ function triggerTiles(b, u, hexes) {
   for (const hex of hexes) for (const t of foeTilesAt(b, u, hex)) {
     if (u.fainted || !onField(b, u)) return;
     const g = grounded(b, u);
+    if (u.feudShield && t.side === 'p' && feudActive(b)) continue;   // Mission 12: the trainers' tiles can't touch the Rockruff yet
     if (t.kind === 'rocks') { const e = effOf('Rock', u.types); hurt(b, u, u.maxHp * e / 8, `Stealth Rock ×${e}`); }
     else if (!g) continue;
     else if (t.kind === 'spikes') hurt(b, u, u.maxHp / [8, 6, 4][t.layers - 1], `Spikes (${t.layers} layer${t.layers > 1 ? 's' : ''})`);
@@ -2409,12 +2470,17 @@ function aiTileHexes(b, mis, u, count = 3) {
   return open.sort((p, q) => d(p) - d(q) || mine(p) - mine(q)).slice(0, count);
 }
 // Toxic Debris: when hit by a physical move, Toxic Spikes go on the 3 open hexes nearest the attacker.
+// Toxic Debris (Jack, Oct 30 2026): the holder's trainer taps the 3 hexes (the Wild AI on On places them nearest the attacker).
 function toxicDebris(b, mis, holder, att) {
   if (b.noMap || !att.pos || att.pos === 'table') { blog(b, `${holder.name}'s Toxic Debris: place a Toxic Spikes layer near ${att.name} on the table.`); return; }
-  const occ = occupied(b), bl = new Set(mis.blocked || []);
-  const hexes = (mis.cells || []).filter(k => !bl.has(k) && !occ.has(k)).sort((p, q) => hexDistance(p, att.pos) - hexDistance(q, att.pos)).slice(0, 3);
+  addChoice(b, { id: holder.id, kind: 'debris', left: 3, near: att.pos });
+  blog(b, `${holder.name}'s Toxic Debris: its trainer places 3 Toxic Spikes tiles.`);
+}
+function debrisNearest(b, mis, holder, near, n) {   // the Wild AI's pick: open hexes nearest the attacker
+  const occ = occupied(b), bl = new Set(mis.blocked || []), att = { pos: near };
+  const hexes = (mis.cells || []).filter(k => !bl.has(k) && !occ.has(k)).sort((p, q) => hexDistance(p, att.pos) - hexDistance(q, att.pos)).slice(0, n);
   hexes.forEach(h => addTile(b, h, holder.side, 'tspikes'));
-  blog(b, `${holder.name}'s Toxic Debris scattered Toxic Spikes around ${att.name}.`);
+  blog(b, `${holder.name}'s Toxic Debris scattered Toxic Spikes near the attacker.`);
 }
 const sideHas = (b, side, k) => !!timerOn(b, k, side);
 
@@ -2458,6 +2524,8 @@ const usableMoves = (b, u) => {
 function beginTurn(b, u) {
   const v = vol(u);
   b.turnNo = (b.turnNo || 0) + 1; u.prevTurn = u.curTurn || 0; u.curTurn = b.turnNo; v.turns = (v.turns || 0) + 1;
+  if (v.meFirst) { delete v.meFirst; blog(b, `${u.name}'s Me First had nothing to answer.`); }
+  u.startDist = distMap(b, u);   // for Pursuit
   // Effects that last "until the user's next turn"
   for (const k of ['protect', 'guard', 'followMe', 'ragePowder', 'magicCoat', 'snatch', 'destinyBond', 'glaiveRush', 'fairyLock', 'ionized', 'endure', 'spotlit', 'quickGuarded', 'grudge']) delete v[k];
   if (v.roost) { u.types = v.roost; delete v.roost; }
@@ -2497,7 +2565,7 @@ function endOfTurnEffects(b, u) {
   if (v.aquaRing && u.hp < u.maxHp && !healBlocked(u)) blog(b, `${u.name}'s Aqua Ring restores ${heal(u, u.maxHp / 16)} HP.`);
   if (v.ingrain && u.hp < u.maxHp && !healBlocked(u)) blog(b, `${u.name}'s roots restore ${heal(u, u.maxHp / 16)} HP.`);
   if (v.leechSeed) {
-    const by = src(v.leechSeed), d = hurt(b, u, u.maxHp / 8, 'Leech Seed');
+    u.koBy = v.leechSeed; const by = src(v.leechSeed), d = hurt(b, u, u.maxHp / 8, 'Leech Seed'); delete u.koBy;
     if (by && d && !by.fainted) { if (abil(b, u) === 'Liquid Ooze') hurt(b, by, d, `${u.name}'s Liquid Ooze`); else if (!healBlocked(by)) blog(b, `${by.name} drains ${heal(by, d)} HP.`); }
   }
   if (u.fainted) return;
@@ -2532,8 +2600,11 @@ const canSleepNow = (b, u) => canGetStatus(u, 'slp', null, b, null) && !fieldUni
 // ---- Leaving the field / fainting: what it takes with it ----
 // Baton Pass hands these to the Pokémon coming in.
 const BATON_KEYS = ['confused', 'focusEnergy', 'ingrain', 'aquaRing', 'curse', 'leechSeed', 'perish', 'magnetRise', 'sub', 'subHp', 'powerTrick', 'gastroAcid', 'laserFocus', 'healBlock', 'embargo', 'telekinesis', 'lockOn'];
+// Power Trick, Speed Swap, Power Split, Guard Split change the real stats until it leaves the field: keep the originals
+const keepStats = u => { const v = vol(u); if (!v.statsBefore) v.statsBefore = { ...u.stats }; };
 function dropVolatiles(b, u) {
   const v = u.v || {};
+  if (v.statsBefore) u.stats = { ...v.statsBefore };
   if (v.transformed) { Object.assign(u, v.transformed); }
   for (const x of Object.values(b.units)) {   // effects other Pokémon had that depended on this one
     const xv = x.v; if (!xv || x.id === u.id) continue;
@@ -2625,10 +2696,13 @@ function powerFor(b, u, t, base) {
     case 'Misty Explosion': return terrainNow(b) === 'misty' && grounded(b, u) ? Math.floor(P * 1.5) : P;
     case 'Fire Pledge': case 'Grass Pledge': case 'Water Pledge': return pledgeCombo(b, u, base) ? 150 : P;
     case 'Spectral Thief': return P;
+    case 'Pursuit': { const a = u.endDist?.[t.id], z = u.startDist?.[t.id]; return a != null && z != null && z > a ? P * 2 : P; }
     case 'Beat Up': case 'Present': return 1;   // worked out hit by hit in dealDamage
     default: return null;
   }
 }
+// Hex distance from u to every Pokémon on the board (Pursuit compares the end of its last turn with the start of this one)
+const distMap = (b, u) => b.noMap || !u.pos || u.pos === 'table' ? null : Object.fromEntries(fieldUnits(b).filter(x => x.id !== u.id && x.pos && x.pos !== 'table').map(x => [x.id, hexDistance(u.pos, x.pos)]));
 const pledgeCombo = (b, u, base) => since(b, u).find(e => e.k === 'move' && /Pledge$/.test(e.move) && e.move !== base.name && b.units[e.by]?.side === u.side && e.by !== u.id);
 // Fixed damage (null = use the damage formula)
 function fixedFor(b, u, t, base) {
@@ -2767,15 +2841,15 @@ function calledMoveFor(b, u, base, targetIds) {
     default: return null;
   }
 }
-const CALLERS = new Set(['Metronome', 'Copycat', 'Mirror Move', 'Assist', 'Sleep Talk', 'Nature Power', 'Me First']);
+const CALLERS = new Set(['Metronome', 'Copycat', 'Mirror Move', 'Assist', 'Sleep Talk', 'Nature Power']);   // Me First is a set-up move here
 // Targets the app picks for a move (Wild AI, called moves): the same way the AI aims.
 function autoTargets(b, mis, u, mv, prefer) {
   if (isSelfMove(mv)) return [];
   if (b.noMap || !u.pos || u.pos === 'table') { const f = prefer && onField(b, prefer) ? prefer : foes(b, u)[0]; return f ? [f.id] : []; }
   const R = moveReach(b, mis, u, mv);
   if (R.kind === 'aoe') return R.units.map(x => x.id);
-  if (R.kind === 'line') { const d = R.dirs.filter(x => x.hit.some(y => y.side !== u.side)).sort((p, q) => q.hit.filter(y => y.side !== u.side).length - p.hit.filter(y => y.side !== u.side).length)[0]; return d ? d.hit.map(x => x.id) : []; }
-  const fs = (R.units || []).filter(x => x.side !== u.side), first = prefer && fs.some(x => x.id === prefer.id) ? prefer : fs[0];
+  if (R.kind === 'line') { const d = R.dirs.filter(x => x.hit.some(y => isEnemy(b, u, y))).sort((p, q) => q.hit.filter(y => isEnemy(b, u, y)).length - p.hit.filter(y => isEnemy(b, u, y)).length)[0]; return d ? d.hit.map(x => x.id) : []; }
+  const fs = (R.units || []).filter(x => isEnemy(b, u, x)), first = prefer && fs.some(x => x.id === prefer.id) ? prefer : fs[0];
   return first ? [first.id, ...fs.filter(x => x.id !== first.id)].slice(0, R.max === Infinity ? 1 : (R.max || 1)).map(x => x.id || x) : [];
 }
 
@@ -2809,6 +2883,8 @@ async function runMove(env, u, base, targetIds, o = {}) {
   if (aa === 'Gorilla Tactics') ab(u).locked = name;
   if (['Protean', 'Libero'].includes(aa) && !ab(u).protUsed) { const tp = typeFor(b, u, base) || moveFor(b, u, base).type; if (u.types.join() !== tp) { u.types = [tp]; blog(b, `${u.name}'s ${aa} made it ${tp} type.`); } ab(u).protUsed = true; }
 
+  // ---- Me First (Jack, Oct 30 2026): ready until its next turn ----
+  if (name === 'Me First' && !o.called) { v.meFirst = true; blog(b, `${u.name} is ready — the first foe to attack it before its next turn gets hit first by its own move at 1.5× power.`); return done(true); }
   // ---- Moves that call another move ----
   if (CALLERS.has(name)) {
     if (name === 'Sleep Talk' && !asleep(b, u)) { blog(b, 'But it failed.'); return done(false); }
@@ -2926,7 +3002,16 @@ async function runMove(env, u, base, targetIds, o = {}) {
   for (let t of targets) {
     if (!t || t.fainted || !onField(b, t)) continue;
     const foeT = t.side !== u.side;
+    if (shieldedFrom(b, t, u)) { blog(b, `${name} can't touch ${t.name} — not while Zangoose and Seviper are still fighting!`); continue; }
     if (!selfMv && t.id !== u.id) {
+      // Me First (this game): a ready Pokémon hits the attacker first with the attacker's own move at 1.5× power
+      if (foeT && dmgMove && t.v?.meFirst && !o.called && !FAIL_ME_FIRST.has(name) && onField(b, t)) {
+        delete t.v.meFirst; const cur = b.curMove;
+        blog(b, `${t.name}'s Me First: it strikes first with ${name}!`);
+        await runMove(env, t, base.power ? { ...base, power: Math.floor(base.power * 1.5) } : base, [u.id], { called: 'Me First' });
+        b.curMove = cur;
+        if (u.fainted || !onField(b, u)) break;
+      }
       // This game's ability rules: Telepathy (allies' attacks miss it), Prankster vs Dark types, priority-blocking abilities
       if (!foeT && dmgMove && defAb(b, u, t) === 'Telepathy') { blog(b, `${t.name} avoids its ally's attack (Telepathy).`); continue; }
       if (foeT && pranked && t.types.includes('Dark')) { blog(b, `It doesn't affect ${t.name} (Dark types ignore Prankster status moves).`); continue; }
@@ -2963,7 +3048,7 @@ async function runMove(env, u, base, targetIds, o = {}) {
       }
       if (foeT && multi && guardedBy(b, t, 'wide') && !NO_PROTECT.has(name)) { blog(b, `Wide Guard protects ${t.name}.`); continue; }
       if (foeT && base.category === 'Status' && guardedBy(b, t, 'crafty') && !NO_PROTECT.has(name)) { blog(b, `Crafty Shield protects ${t.name}.`); continue; }
-      if (foeT && o.pri > 0 && guardedBy(b, t, 'quick')) o.quickGuarded = true;
+      if (foeT && o.pri > 0 && guardedBy(b, t, 'quick') && !NO_PROTECT.has(name)) { blog(b, `Quick Guard protects ${t.name} from the priority move.`); continue; }   // Jack, Oct 30 2026: blocks it, as the games
       if (BREAKS_PROTECT.has(name) && t.v?.protect) delete t.v.protect;
       if (name === 'Feint' || name === 'Hyperspace Hole' || name === 'Hyperspace Fury') for (const x of fieldUnits(b)) if (x.side === t.side && x.v?.guard) delete x.v.guard;
       // Abilities that stop the move outright
@@ -3139,13 +3224,14 @@ async function dealDamage(env, u, t, base, { spread, o, sheer }) {
     return { dealt: 0, crit, sub: true, hits: n };
   }
   const da = defAb(b, u, t);
-  if (dmg > 0 && da === 'Disguise' && !ab(t).disguiseBroken) { ab(t).disguiseBroken = true; dmg = 0; blog(b, `${t.name}'s Disguise took the hit!`); if (baseNameOf(t) === 'Mimikyu') setForm(b, t, 'Mimikyu (Busted)'); hurt(b, t, t.maxHp / 8, 'its disguise broke'); }
-  if (dmg > 0 && da === 'Ice Face' && x0cat(b, u, t, base) === 'Physical' && !ab(t).iceFaceBroken) { ab(t).iceFaceBroken = true; dmg = 0; blog(b, `${t.name}'s Ice Face took the hit!`); if (baseNameOf(t) === 'Eiscue (Ice Face)') setForm(b, t, 'Eiscue (No Ice Face)'); }
+  let absorbed = false;   // Disguise / Ice Face took the hit (no "took 0 damage" line)
+  if (dmg > 0 && da === 'Disguise' && !ab(t).disguiseBroken) { ab(t).disguiseBroken = true; dmg = 0; absorbed = true; blog(b, `${t.name}'s Disguise took the hit!`); if (baseNameOf(t) === 'Mimikyu') setForm(b, t, 'Mimikyu (Busted)'); hurt(b, t, t.maxHp / 8, 'its disguise broke'); }
+  if (dmg > 0 && da === 'Ice Face' && x0cat(b, u, t, base) === 'Physical' && !ab(t).iceFaceBroken) { ab(t).iceFaceBroken = true; dmg = 0; absorbed = true; blog(b, `${t.name}'s Ice Face took the hit!`); if (baseNameOf(t) === 'Eiscue (Ice Face)') setForm(b, t, 'Eiscue (No Ice Face)'); }
   if (dmg >= t.hp && t.hp === t.maxHp && da === 'Sturdy') { dmg = t.hp - 1; blog(b, `${t.name} endured the hit with Sturdy!`); }
   if (dmg >= t.hp && t.v?.endure) { dmg = t.hp - 1; blog(b, `${t.name} endured the hit!`); }
   if (dmg >= t.hp && name === 'False Swipe') dmg = t.hp - 1;
   const dealt = Math.min(t.hp, Math.max(0, dmg)); t.hp -= dealt;
-  blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit!' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective!' : eff < 1 ? ' — not very effective' : ''}.`);
+  if (!absorbed) blog(b, `${t.name} took ${dealt} damage${crit ? ' — critical hit' : ''}${eff === 0 ? ' — it had no effect' : eff > 1 ? ' — super effective' : eff < 1 ? ' — not very effective' : ''}${crit || eff > 1 ? '!' : '.'}`);
   note(b, { k: 'hit', by: u.id, to: t.id, dmg: dealt, cat: x0cat(b, u, t, base), move: name });
   if (t.illusion && t.id !== u.id) restoreIllusion(b, t, `${t.name} was hit`);   // any damaging hit breaks Illusion
   if (dealt > 0) {
@@ -3284,9 +3370,9 @@ async function targetEffect(env, u, t, base, { dealt }) {
     case 'Heart Swap': [u.stages, t.stages] = [{ ...t.stages }, { ...u.stages }]; blog(b, `${u.name} swapped all stat changes with ${t.name}.`); break;
     case 'Power Swap': for (const k of ['atk', 'spa']) [u.stages[k], t.stages[k]] = [t.stages[k], u.stages[k]]; blog(b, `${u.name} swapped Attack and Sp. Atk changes with ${t.name}.`); break;
     case 'Guard Swap': for (const k of ['def', 'spd']) [u.stages[k], t.stages[k]] = [t.stages[k], u.stages[k]]; blog(b, `${u.name} swapped Defense and Sp. Def changes with ${t.name}.`); break;
-    case 'Speed Swap': [u.stats.spe, t.stats.spe] = [t.stats.spe, u.stats.spe]; blog(b, `${u.name} swapped Speed with ${t.name}.`); break;
-    case 'Power Split': for (const k of ['atk', 'spa']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its power with ${t.name}.`); break;
-    case 'Guard Split': for (const k of ['def', 'spd']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its guard with ${t.name}.`); break;
+    case 'Speed Swap': keepStats(u); keepStats(t); [u.stats.spe, t.stats.spe] = [t.stats.spe, u.stats.spe]; blog(b, `${u.name} swapped Speed with ${t.name}.`); break;
+    case 'Power Split': keepStats(u); keepStats(t); for (const k of ['atk', 'spa']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its power with ${t.name}.`); break;
+    case 'Guard Split': keepStats(u); keepStats(t); for (const k of ['def', 'spd']) { const a = Math.floor((u.stats[k] + t.stats[k]) / 2); u.stats[k] = a; t.stats[k] = a; } blog(b, `${u.name} shared its guard with ${t.name}.`); break;
     case 'Topsy-Turvy': { const ns = { ...t.stages }; for (const k of STAGE_KEYS) if (k !== 'crit') ns[k] = -(t.stages[k] || 0); t.stages = keepBoosts(b, t, u, ns); blog(b, `${t.name}'s stat changes were flipped${stickyHeld(b, t, u) ? ' (Sticky Hold keeps its boosts)' : ''}.`); break; }
     case 'Clear Smog': if (hit) { t.stages = keepBoosts(b, t, u, Object.fromEntries(STAGE_KEYS.map(k => [k, 0]))); blog(b, `${t.name}'s stat changes were removed${stickyHeld(b, t, u) ? ' (Sticky Hold keeps its boosts)' : ''}.`); } break;
     case 'Soak': if (t.types.join() === 'Water') blog(b, 'But it failed.'); else { t.types = ['Water']; blog(b, `${t.name} became Water type.`); } break;
@@ -3384,7 +3470,7 @@ async function selfOrFieldMove(env, u, base, targetIds) {
     case 'Ingrain': if (v.ingrain) { blog(b, 'But it failed.'); return 'fail'; } v.ingrain = true; blog(b, `${u.name} planted its roots — it heals each turn but can't switch out.`); return 'done';
     case 'Aqua Ring': if (v.aquaRing) { blog(b, 'But it failed.'); return 'fail'; } v.aquaRing = true; blog(b, `${u.name} surrounded itself with a veil of water.`); return 'done';
     case 'No Retreat': if (v.noRetreat) { blog(b, 'But it failed.'); return 'fail'; } v.noRetreat = true; blog(b, `${u.name} won't retreat — it can't switch out.`); return null;
-    case 'Power Trick': [u.stats.atk, u.stats.def] = [u.stats.def, u.stats.atk]; v.powerTrick = !v.powerTrick; blog(b, `${u.name} swapped its Attack and Defense.`); return 'done';
+    case 'Power Trick': keepStats(u); [u.stats.atk, u.stats.def] = [u.stats.def, u.stats.atk]; v.powerTrick = !v.powerTrick; blog(b, `${u.name} swapped its Attack and Defense.`); return 'done';
     case 'Autotomize': v.autotomize = (v.autotomize || 0) + 1; blog(b, `${u.name} became lighter.`); return null;
     case 'Roost': if (healBlocked(u)) { blog(b, `${u.name} can't heal (Heal Block).`); return 'fail'; } blog(b, `${u.name} recovered ${heal(u, u.maxHp / 2)} HP.`); if (u.types.includes('Flying')) { v.roost = [...u.types]; u.types = u.types.filter(t => t !== 'Flying'); if (!u.types.length) u.types = ['Normal']; blog(b, `${u.name} landed — it loses its Flying type until its next turn.`); } return 'done';
     case 'Substitute': { const c = Math.floor(u.maxHp / 4); u.hp -= c; v.sub = true; v.subHp = c; blog(b, `${u.name} made a substitute (${c} HP).`); return 'done'; }
@@ -3533,7 +3619,9 @@ function volChips(b, u) {
   if (v.magnetRise) add(`Magnet Rise ${v.magnetRise}`); if (v.telekinesis) add('Floating'); if (v.smackDown) add('Grounded');
   if (v.aquaRing) add('Aqua Ring'); if (v.stockpile) add(`Stockpile ${v.stockpile}`); if (v.uproar) add('Uproar');
   if (v.transformed) add(`Transformed (${v.transformedInto})`); if (v.destinyBond) add('Destiny Bond'); if (v.glaiveRush) add('Exposed');
-  if (v.grudge) add('Grudge', 'Until its next turn'); if (v.unburden) add('Unburden', 'Speed ×2 until it switches out'); if (v.hosting) add('Commander', `${b.units[v.hosting]?.name || 'Tatsugiri'} is inside: +2 all stats, can't switch`);
+  if (u.feud && !u.fainted) add(`Feuding with ${b.units[u.feud]?.name || 'its rival'}`, 'Only attacks its rival; KO\'d by it, it comes back stronger');
+  if (u.feudShield && feudActive(b)) add('Untouchable', 'The trainers can\'t affect it until Zangoose and Seviper are both down');
+  if (v.grudge) add('Grudge', 'Until its next turn'); if (v.meFirst) add('Me First ready', 'The first foe to attack it gets hit first by its own move at 1.5×'); if (v.unburden) add('Unburden', 'Speed ×2 until it switches out'); if (v.hosting) add('Commander', `${b.units[v.hosting]?.name || 'Tatsugiri'} is inside: +2 all stats, can't switch`);
   if (u.inside) add(`Inside ${b.units[u.inside]?.name || 'Dondozo'}`, 'Commander: can\'t be targeted and skips its turns');
   const seen = u.side !== 'w' || b.seenAb?.[u.id];   // don't give a hidden wild ability away
   if (u.typePick && seen) add(`${u.typePick} type`, u.ability === 'Multitype' ? 'Multitype pick' : 'RKS System pick'); if (u.harvestMode && seen) add(`Harvest: ${u.harvestMode === 'hp' ? 'HP' : 'Status'}`);
@@ -3646,11 +3734,13 @@ function resolveChoice(b, i, key) {
     if (key === 'spe') blog(b, `${u.name}'s Gluttony: ${applyStages(u, { spe: 1 }, b, u)}.`);
     else blog(b, `${u.name}'s Gluttony restores ${heal(u, u.maxHp * .33)} HP.`);
   }
+  if (c.kind === 'debris') debrisNearest(b, { cells: b.grid?.cells || [], blocked: b.grid?.blocked || [] }, u, c.near, c.left);
   if (c.kind === 'imposter') { const t = b.units[key]; if (t && onField(b, t)) doTransform(b, u, t, 'Imposter'); }
 }
-const CHOICE_TEXT = { glut: 'Gluttony: heal 33% of its HP, or Speed +1?', imposter: 'Imposter: which foe does it copy?' };
+const CHOICE_TEXT = { glut: 'Gluttony: heal 33% of its HP, or Speed +1?', imposter: 'Imposter: which foe does it copy?', debris: 'Toxic Debris: tap open hexes on the map for the Toxic Spikes tiles' };
 function choiceOptions(b, c) {
   if (c.kind === 'glut') return [{ key: 'heal', label: 'Heal 33%' }, { key: 'spe', label: 'Speed +1' }];
+  if (c.kind === 'debris') return [{ key: 'auto', label: `Place the ${c.left} nearest the attacker` }];
   if (c.kind === 'imposter') return (c.opts || []).map(id => b.units[id]).filter(t => t && onField(b, t)).map(t => ({ key: t.id, label: t.name }));
   return [];
 }
@@ -3965,8 +4055,14 @@ function openModal(build) {   // build(card, close, redraw) fills in the modal's
   redraw();
   return close;
 }
+// Moves whose rule in this game differs from the Moves tab's effect text
+const RULE_TEXT = {
+  'Me First': 'Get ready until your next turn: the first foe that attacks you gets hit first by its own move at 1.5× power (then its attack lands). Fails if no one attacks.',
+  Pursuit: 'Double power if the target is farther away at the start of your turn than it was at the end of your last turn.',
+  'Quick Guard': 'Until your next turn, foes\' priority moves fail against you and allies within 3 hexes.',
+};
 const moveCardHTML = (name, extra = '') => {
-  const d = getMove(name) || { name };
+  const d0 = getMove(name) || { name }, d = { ...d0, ...(name === 'Struggle' ? { type: 'Typeless' } : {}), ...(RULE_TEXT[name] ? { effect: RULE_TEXT[name] } : {}) };
   const au = moveAuto(d), tag = au.auto === 'no' ? `<span class="pill warn" title="${esc(au.why)}">Not automated${au.why ? ': ' + esc(au.why) : ''}</span>`
     : au.auto === 'partial' ? `<span class="pill warn">Partly automated: ${esc(au.why)}</span>` : au.auto === 'none' ? `<span class="pill warn">No effect here: ${esc(au.why)}</span>` : '';
   return `<small><i class="tchip t-${d.type}">${d.type || '?'}</i> ${d.category || ''}${d.power ? ' · Power ' + d.power : ''}${d.accuracy ? ' · Acc ' + d.accuracy : d.alwaysHits ? ' · Never misses' : ''} · <span title="${esc(d.target || '')}">${esc(shapeLabel(d))}</span></small>
@@ -3994,6 +4090,9 @@ function missionSetupDM(el, ctx) {
         <div class="statline">${STAT_KEYS.map(k => `<span>${STAT_LABEL[k]} <b>${u.stats[k]}</b></span>`).join('')}</div>
         <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option value="${esc(a)}" ${a === u.ability ? 'selected' : ''}>${esc(a)}${abilityStatus(a).auto === 'yes' ? '' : ' (not automated)'}</option>`).join('')}</select></label>
         <div class="abil">${esc(getAbility(u.ability)?.effect || '')} ${abilityTag(u.ability)}</div>
+        ${u.feud ? `<div class="banner warn" style="font-size:.85rem">Rivalry: only attacks ${esc(getLine(u.feud.replace('w_', ''))?.name || 'its rival')}. KO'd by it → full HP, +1 to all five stats, placed next to it. A trainer KO catches it as normal.</div>` : ''}
+        ${u.feudShield ? `<div class="banner warn" style="font-size:.85rem">Rivalry: the trainers can't affect it until Zangoose and Seviper are both down.</div>` : ''}
+        ${u.phase2 ? `<div class="banner warn" style="font-size:.85rem">Finale: when knocked out it comes back as <b>${esc(u.phase2)}</b> (${esc(FINALE.thenAbility)}, same moves, full HP). Only that second KO catches it.</div>` : ''}
         <div class="row" style="gap:6px">${u.moves.map(m => `<span class="pill">${esc(m)}</span>`).join('')}<button class="btn small ghost" data-moves="${l.final}">Edit moves</button></div>
         ${ws ? '' : '<div class="muted" style="font-size:.8rem">Using defaults (first ability, 4 newest moves).</div>'}
       </div>`; }).join('')}</div>
@@ -4133,7 +4232,20 @@ function battleView(el, ctx) {
     tap = key => {
       const ok = u.side === 'w' ? openHexes(b, mis).includes(key) : lit.has(key);
       if (!ok) return toast('Not an allowed hex');
-      const nb = clone(b); nb.units[u.id].pos = key; blog(nb, `${u.name} was sent out.`); if (nb.started) { enterField(nb, nb.units[u.id]); applyHealingWish(nb, nb.units[u.id]); } BUI.place = null; save(settle(nb));
+      const nb = clone(b); nb.units[u.id].pos = key; blog(nb, `${u.name} was sent out.`);
+      if (nb.started) { enterField(nb, nb.units[u.id]); applyHealingWish(nb, nb.units[u.id]); triggerTiles(nb, nb.units[u.id], [key]); }   // a hazard tile where it's placed triggers (Jack, Oct 30 2026)
+      BUI.place = null; save(settle(nb));
+    };
+  } else if (!b.noMap && (b.choices || []).some(ch => ch.kind === 'debris' && controls(b.units[ch.id]))) {   // Toxic Debris: tap the tiles
+    const i = b.choices.findIndex(ch => ch.kind === 'debris' && controls(b.units[ch.id])), ch = b.choices[i], occ = occupied(b), bl = new Set(mis.blocked || []);
+    lit = new Set((mis.cells || []).filter(k => !bl.has(k) && !occ.has(k)));
+    hint = `${b.units[ch.id].name}'s Toxic Debris: tap ${ch.left} open hex${ch.left > 1 ? 'es' : ''} for Toxic Spikes (tapping a tile again adds a layer).`;
+    tap = key => {
+      if (!lit.has(key)) return toast('Pick an open hex');
+      const nb = clone(b), c2 = nb.choices[i], layers = addTile(nb, key, nb.units[c2.id].side, 'tspikes'); c2.left--;
+      blog(nb, `Toxic Spikes placed${layers > 1 ? ` (${layers} layers)` : ''}.`);
+      if (c2.left <= 0) nb.choices.splice(i, 1);
+      save(settle(nb));
     };
   } else if (!b.noMap && myTurn && b.turn.step === 'move' && b.turn.roll) {
     lit = reachableInBattle(b, mis, turnU, b.turn.roll);
@@ -4269,7 +4381,7 @@ function battleView(el, ctx) {
         const R = moveReach(b, mis, turnU, mv);
         const redir = redirectFor(b, mis, turnU, mv);   // Follow Me / Rage Powder / Spotlight
         if (redir) { if (R.kind === 'line') R.dirs.forEach(d => { if (!d.hit.some(x => x.id === redir.id)) d.hit = []; }); else if (R.units) R.units = R.units.filter(x => x.id === redir.id); }
-        const isFoe = x => x.side !== turnU.side;
+        const isFoe = x => isEnemy(b, turnU, x);   // (Mission 12: Zangoose / Seviper see only each other)
         const card = (x, on, attr) => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv);
           return `<button class="target ${on ? 'on' : ''} side-${x.side}" ${attr}>${monImg(x.name, x.shiny, 'spr sm')}<div><b>${esc(x.name)}</b> <span class="muted">${isFoe(x) ? esc(sideName(b, x)) : 'ally'}</span>
             <div class="types">${shownTypes(x, isDM).map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${abilityHidden(b, x, isDM) ? '?' : esc(abil(b, x) || '')}</div>${hpBar(x)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
@@ -4385,7 +4497,8 @@ function battleView(el, ctx) {
     nb.needs = nb.needs.filter((_, i) => i !== +x.dataset.need);
     if (need?.hex) {   // coming in after a switch move: same hex, and Baton Pass / Shed Tail hand things over
       u.pos = nb.noMap ? 'table' : need.hex; blog(nb, `${u.name} came in.`);
-      if (need.pass?.v) Object.assign(vol(u), need.pass.v); if (need.pass?.stages) u.stages = { ...need.pass.stages };
+      if (need.pass?.v) { const pt = need.pass.v.powerTrick; Object.assign(vol(u), { ...need.pass.v, powerTrick: false }); if (pt) { keepStats(u); [u.stats.atk, u.stats.def] = [u.stats.def, u.stats.atk]; u.v.powerTrick = true; } }   // Baton Pass carries Power Trick's swap
+      if (need.pass?.stages) u.stages = { ...need.pass.stages };
       note(nb, { k: 'in', to: u.id, sw: true }); if (nb.started) enterField(nb, u); applyHealingWish(nb, u);
       return save(settle(nb));
     }
@@ -4515,7 +4628,7 @@ const movesOf = (u, b) => (b ? usableMoves(b, u) : (u.moves || [])).map(getMove)
 function hitsFrom(b, mis, u, mv, h) {
   const R = moveReach(b, mis, { ...u, pos: h }, mv);
   if (R.kind === 'self') return { R, foes: [] };
-  return { R, foes: reachUnits(R).filter(x => x.side !== u.side) };
+  return { R, foes: reachUnits(R).filter(x => isEnemy(b, u, x)) };
 }
 const canReachAny = (b, mis, u, h) => movesOf(u, b).some(mv => hitsFrom(b, mis, u, mv, h).foes.length);
 // Damage estimate with the real formula: average roll (D6+D12+D20 ≈ 20) and the top roll (38), no crit.
@@ -4604,7 +4717,7 @@ function aiScore(b, u, mv, t, usable, rnd) {
 }
 // The plan for a wild Pokémon's turn. stage 'move' (before/after the roll) → { stay, dest, focus, note }; stage 'act' → { move, targets, dir, note }.
 function aiFocus(b, mis, u, style) {
-  const foesOn = fieldUnits(b).filter(x => x.side !== u.side);
+  const foesOn = fieldUnits(b).filter(x => isEnemy(b, u, x));
   if (!foesOn.length) return null;
   const order = actOrder(b);
   if (b.noMap || !u.pos || u.pos === 'table') return foesOn.sort((p, q) => order(p.id) - order(q.id))[0];
@@ -4646,7 +4759,7 @@ function aiActPlan(b, mis, u, style, rnd = Math.random) {
   const focus = aiFocus(b, mis, u, style), usable = movesOf(u, b), order = actOrder(b);
   const opts = [];   // { mv, foes(reachable), R }
   for (const mv of usable) {
-    let { R, foes } = (b.noMap || !u.pos || u.pos === 'table') ? { R: { kind: isSelfMove(mv) ? 'self' : 'free' }, foes: isSelfMove(mv) ? [] : fieldUnits(b).filter(x => x.side !== u.side) } : hitsFrom(b, mis, u, mv, u.pos);
+    let { R, foes } = (b.noMap || !u.pos || u.pos === 'table') ? { R: { kind: isSelfMove(mv) ? 'self' : 'free' }, foes: isSelfMove(mv) ? [] : fieldUnits(b).filter(x => isEnemy(b, u, x)) } : hitsFrom(b, mis, u, mv, u.pos);
     const rd = R.kind !== 'self' && redirectFor(b, mis, u, mv);   // Follow Me / Rage Powder: must aim at it
     if (rd) { foes = foes.filter(x => x.id === rd.id); if (R.kind === 'line') R = { ...R, dirs: R.dirs.map(d => d.hit.some(x => x.id === rd.id) ? d : { ...d, hit: [] }) }; else if (R.units) R = { ...R, units: R.units.filter(x => x.id === rd.id) }; }
     if (R.kind === 'self' || foes.length) opts.push({ mv, R, foes });
@@ -4661,7 +4774,7 @@ function aiActPlan(b, mis, u, style, rnd = Math.random) {
       if (!t) return null;
       const sc = aiScore(b, u, o.mv, t, usable, rnd);
       // Moves that would also hit its own side are marked way down (like the games' partner rule)
-      const hitsAlly = o.R.kind === 'aoe' && o.mv.category !== 'Status' && o.R.units.some(x => x.side === u.side);
+      const hitsAlly = o.R.kind === 'aoe' && o.mv.category !== 'Status' && o.R.units.some(x => !isEnemy(b, u, x));
       if (hitsAlly) { sc.s -= 30; sc.why.push('−30 would hit an ally'); }
       return { ...o, t, sc };
     }).filter(Boolean);
@@ -4677,8 +4790,8 @@ function aiActPlan(b, mis, u, style, rnd = Math.random) {
   if (R.kind === 'self') targets = [];
   else if (R.kind === 'aoe') targets = R.units.map(x => x.id);
   else if (R.kind === 'line') {
-    const val = d => d.hit.filter(x => x.side !== u.side).length * 10 - d.hit.filter(x => x.side === u.side).length * 11 + (d.hit.some(x => x.id === choice.t?.id) ? 5 : 0);
-    const d = R.dirs.filter(x => x.hit.some(y => y.side !== u.side)).sort((p, q) => val(q) - val(p))[0];
+    const val = d => d.hit.filter(x => isEnemy(b, u, x)).length * 10 - d.hit.filter(x => !isEnemy(b, u, x)).length * 11 + (d.hit.some(x => x.id === choice.t?.id) ? 5 : 0);
+    const d = R.dirs.filter(x => x.hit.some(y => isEnemy(b, u, y))).sort((p, q) => val(q) - val(p))[0];
     dir = d?.dir ?? null; targets = d ? d.hit.map(x => x.id) : [];
   } else {
     const max = R.max === Infinity ? 1 : (R.max || 1);
@@ -4711,14 +4824,24 @@ async function useMove(ctx, actorId, moveName, targetIds, opts = {}) {   // opts
 function editUnitModal(ctx, id) {
   const { mis, cid, misNum } = ctx, b0 = mis.battle, u0 = b0.units[id];
   let st = { hp: u0.hp, status: u0.status, slp: u0.slp || 1, stages: { ...u0.stages } };
+  // Also: PP, battle form, and the RKS System / Multitype type (for fixing table mistakes)
+  const ppMoves = (u0.moves || []).filter(m => ppOf(clone(u0), m) !== Infinity), base0 = baseNameOf(u0);
+  const forms = [base0, ...POKEDEX_DATA.filter(p => p.battleFormOf === base0).map(p => p.name)], picksType = ['RKS System', 'Multitype'].includes(u0.ability);
+  Object.assign(st, { pp: Object.fromEntries(ppMoves.map(m => [m, u0.pp?.[m] ?? ppMaxOf(u0, m)])), form: trueName(u0), typePick: u0.typePick || '' });
   openModal((card, close, redraw) => {
     card.innerHTML = `<div class="row">${monImg(u0.name, u0.shiny, 'spr sm')}<h2 style="margin:0">${esc(u0.name)}</h2></div>
       <label class="field"><span>HP (max ${u0.maxHp})</span><input type="number" id="eHp" min="0" max="${u0.maxHp}" value="${st.hp}"></label>
       <div><div class="muted" style="margin-bottom:6px">Status</div><div class="seg">${[['', 'None'], ...Object.entries(STATUS_SHORT)].map(([k, l]) => `<button aria-pressed="${(st.status || '') === k}" data-st="${k}">${l}</button>`).join('')}</div>
         ${st.status === 'slp' ? `<label class="field" style="margin-top:8px"><span>Sleep turns left</span><input type="number" id="eSlp" min="1" max="3" value="${st.slp}"></label>` : ''}</div>
       <div class="stagegrid">${STAGE_KEYS.map(k => `<div><span>${STAGE_LABEL[k]}</span><button class="icon-btn" data-sd="${k}" data-v="-1">−</button><b>${st.stages[k] > 0 ? '+' : ''}${st.stages[k]}</b><button class="icon-btn" data-sd="${k}" data-v="1">+</button></div>`).join('')}</div>
+      ${ppMoves.length ? `<div><div class="muted" style="margin-bottom:6px">PP</div><div class="two">${ppMoves.map(m => `<label class="field"><span>${esc(m)} <span class="muted">(max ${ppMaxOf(u0, m)})</span></span><input type="number" min="0" max="${ppMaxOf(u0, m)}" data-pp="${esc(m)}" value="${st.pp[m]}"></label>`).join('')}</div></div>` : ''}
+      ${forms.length > 1 ? `<label class="field"><span>Battle form</span><select id="eForm">${forms.map(f => `<option ${f === st.form ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>` : ''}
+      ${picksType ? `<label class="field"><span>${esc(u0.ability)} type</span><select id="eType"><option value="">— not picked —</option>${TYPE_LIST.map(t2 => `<option ${t2 === st.typePick ? 'selected' : ''}>${t2}</option>`).join('')}</select></label>` : ''}
       <div class="row">${u0.out && !u0.fainted && !b0.noMap ? '<button class="btn small" data-mv>Move on map</button>' : ''}${!u0.fainted ? '<button class="btn small" data-faint>Faint now</button>' : ''}
         <div class="spacer"></div><button class="btn ghost" data-x>Cancel</button><button class="btn primary" data-ok>Save</button></div>`;
+    card.querySelectorAll('[data-pp]').forEach(x => x.onchange = () => { st.pp[x.dataset.pp] = Math.max(0, Math.min(+x.max, parseInt(x.value) || 0)); });
+    card.querySelector('#eForm')?.addEventListener('change', e => { st.form = e.target.value; });
+    card.querySelector('#eType')?.addEventListener('change', e => { st.typePick = e.target.value; });
     card.querySelectorAll('[data-st]').forEach(x => x.onclick = () => { st.hp = +card.querySelector('#eHp').value; st.status = x.dataset.st || null; redraw(); });
     card.querySelectorAll('[data-sd]').forEach(x => x.onclick = () => { st.hp = +card.querySelector('#eHp').value; const k = x.dataset.sd; st.stages[k] = Math.max(-6, Math.min(k === 'crit' ? 3 : 6, st.stages[k] + +x.dataset.v)); redraw(); });
     card.querySelector('[data-x]').onclick = close;
@@ -4731,7 +4854,11 @@ function editUnitModal(ctx, id) {
       const nb = clone(ctx.mis.battle), u = nb.units[id];
       u.hp = Math.max(0, Math.min(u.maxHp, parseInt(card.querySelector('#eHp').value) || 0));
       u.status = st.status; u.slp = st.status === 'slp' ? Math.max(1, parseInt(card.querySelector('#eSlp')?.value) || 1) : 0; if (st.status === 'tox' && !u.tox) u.tox = 1;
-      u.stages = st.stages; blog(nb, `DM adjusted ${u.name}.`);
+      u.stages = st.stages;
+      for (const [m, n] of Object.entries(st.pp)) { ppOf(u, m); u.pp[m] = n; }
+      if (st.form !== trueName(u)) setForm(nb, u, st.form, true);
+      if (picksType && (st.typePick || null) !== (u.typePick || null)) { u.typePick = st.typePick || null; u.types = u.typePick ? [u.typePick] : baseTypes(u); }
+      blog(nb, `DM adjusted ${u.name}.`);
       if (u.hp === 0 && !u.fainted) faint(nb, u, null);
       close(); DB.update(MISSION(cid, misNum), { battle: nb }).catch(saveErr);
     };
