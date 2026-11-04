@@ -741,9 +741,12 @@ function screenDM(cid) {
       <div class="stack" style="--gap:6px">${(c.players || []).map(p => { const t = teams[p.id] || [];
         const todo = todoFor(t);
         return `<div class="row"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(initialsOf(c.players)[p.id])}</span>${esc(p.name)} <span class="muted">· ${todo.length ? todo.join(' · ') : 'all done ✓'}</span></div>`; }).join('')}</div>
+      ${(() => { const caught = new Set((b.catches || []).map(x => String(x.final))), missed = Object.values(b.units || {}).filter(u => u.side === 'w' && u.fainted && !caught.has(String(u.final)) && !(c.takenFinals || []).map(String).includes(String(u.final)));
+        return missed.length ? `<div class="stack" style="--gap:6px"><b>Fainted without a catch</b>${missed.map(u => `<div class="row">${monImg(u.name, false, 'spr xs')}<b>${esc(u.name)}</b><select data-gcp="${u.id}">${(c.players || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><button class="btn small primary" data-gc="${u.id}">Give catch</button></div>`).join('')}</div>` : ''; })()}
       <div class="muted">Re-rolls and EVs carry over and can be finished later, from each player's team list. When you're ready, tap <b>Next mission ▶</b> at the top.</div>
       <div class="row"><div class="spacer"></div><button class="btn small ghost" id="restartM">↺ Restart mission</button></div></div>`;
     document.getElementById('restartM').onclick = () => restartMission(ctx);
+    body.querySelectorAll('[data-gc]').forEach(x => x.onclick = () => giveCatchLater(ctx, x.dataset.gc, body.querySelector(`[data-gcp="${x.dataset.gc}"]`)?.value));
   };
   const drawStarters = () => {   // Mission 0: claim order → pick order, picks, then each player's setup progress
     const el = document.getElementById('starterArea'); if (!el) return;
@@ -1612,6 +1615,19 @@ function feudRevive(b, v, killer) {
   const spots = NEIGHBORS.map(([dq, dr]) => (q + dq) + ',' + (r0 + dr)).filter(k => (!cells.size || cells.has(k)) && !bl.has(k) && !occ.has(k));
   if (spots.length) { v.pos = spots.sort((p2, q2) => far(q2) - far(p2))[0]; blog(b, `${v.name} lands next to ${rival.name}.`); }
 }
+// Who catches a wild Pokémon that fainted: the player's Pokémon that knocked it out; else the one that caused it (hazard tile,
+// poison / burn, Leech Seed, Curse, Salt Cure, binding); else the player's Pokémon that last damaged it; else null (the DM picks).
+function catchCredit(b, v, killer) {
+  if (killer && killer.side === 'p') return killer;
+  const by = v.koBy && b.units[v.koBy]; if (by?.side === 'p') return by;
+  const hit = [...(b.ev || [])].reverse().find(e => e.k === 'hit' && e.to === v.id && e.dmg > 0 && b.units[e.by]?.side === 'p');
+  return hit ? b.units[hit.by] : null;
+}
+function awardCatch(b, v, cr, indirect) {
+  b.catches = [...(b.catches || []), { pid: cr.owner, final: v.final, species: v.name, by: cr.id }]; b.taken = [...(b.taken || []), v.final];
+  if (indirect) { cr.kos = (cr.kos || 0) + 1; b.kos = [...(b.kos || []), { by: cr.id, victim: v.id, indirect: true }]; }   // the KO (re-roll) goes with it
+  blog(b, `${sideName(b, cr)} caught ${v.name}! (${indirect ? `credited to ${cr.name}` : `KO by ${cr.name}`})`);
+}
 // A Pokémon faints: KO credit, catch, and who must send out a replacement.
 function faint(b, v, killer) {
   if (v.phase2 && !v.fainted) return secondPhase(b, v, killer);
@@ -1636,10 +1652,12 @@ function faint(b, v, killer) {
     onKO(b, killer, v);
     killer.kos = (killer.kos || 0) + 1;
     b.kos = [...(b.kos || []), { by: killer.id, victim: v.id }];
-    if (killer.side === 'p' && v.side === 'w') {
-      if ((b.taken || []).includes(v.final)) blog(b, `${v.name} can't be caught (that Pokémon is already taken).`);
-      else { b.catches = [...(b.catches || []), { pid: killer.owner, final: v.final, species: v.name, by: killer.id }]; b.taken = [...(b.taken || []), v.final]; blog(b, `${sideName(b, killer)} caught ${v.name}! (KO by ${killer.name})`); }
-    }
+  }
+  if (v.side === 'w') {   // Every wild knockout is a catch (Jack, Nov 4 2026) unless that Pokémon is already taken
+    const cr = catchCredit(b, v, killer);
+    if ((b.taken || []).includes(v.final)) blog(b, `${v.name} can't be caught (that Pokémon is already taken).`);
+    else if (cr) awardCatch(b, v, cr, cr !== killer);
+    else { addChoice(b, { id: v.id, kind: 'catch' }); blog(b, `No trainer's Pokémon knocked ${v.name} out — the DM picks who catches it.`); }
   }
   const team = Object.values(b.units).filter(u => u.side === v.side && u.owner === v.owner);
   const left = team.filter(u => !u.fainted && !u.out);
@@ -2400,11 +2418,11 @@ const forcedDown = (b, u) => !!(timerOn(b, 'gravity') || u.v?.ingrain || u.v?.sm
 // b.hazards = [{ hex, side (the setter's side), kind: 'spikes' | 'rocks' | 'tspikes' | 'web', layers }]
 // Each use places 3 tiles anywhere on the map. A tile hurts the setter's foes when they walk through it, end on it,
 // or are knocked onto it. Placing again on the same tile adds a layer (Spikes up to 3, Toxic Spikes up to 2).
-function addTile(b, hex, side, kind) {
+function addTile(b, hex, side, kind, by) {   // by: the Pokémon that set it (gets the catch if it knocks a wild Pokémon out)
   b.hazards = b.hazards || [];
   const t = b.hazards.find(h => h.hex === hex && h.side === side && h.kind === kind);
-  if (t) { if (t.layers < HAZARD_MAX[kind]) t.layers++; return t.layers; }
-  b.hazards.push({ hex, side, kind, layers: 1 }); return 1;
+  if (t) { if (t.layers < HAZARD_MAX[kind]) t.layers++; if (by) t.by = by; return t.layers; }
+  b.hazards.push({ hex, side, kind, layers: 1, ...(by ? { by } : {}) }); return 1;
 }
 const foeTilesAt = (b, u, hex) => (b.hazards || []).filter(h => h.hex === hex && h.side !== u.side);
 const hazardHexesFor = (b, u) => new Set((b.hazards || []).filter(h => h.side !== u.side).map(h => h.hex));
@@ -2413,16 +2431,18 @@ function triggerTiles(b, u, hexes) {
     if (u.fainted || !onField(b, u)) return;
     const g = grounded(b, u);
     if (u.feudShield && t.side === 'p' && feudActive(b)) continue;   // Mission 12: the trainers' tiles can't touch the Rockruff yet
+    u.koBy = t.by;   // a knockout here is credited to whoever set the tile
     if (t.kind === 'rocks') { const e = effOf('Rock', u.types); hurt(b, u, u.maxHp * e / 8, `Stealth Rock ×${e}`); }
-    else if (!g) continue;
+    else if (!g) { delete u.koBy; continue; }
     else if (t.kind === 'spikes') hurt(b, u, u.maxHp / [8, 6, 4][t.layers - 1], `Spikes (${t.layers} layer${t.layers > 1 ? 's' : ''})`);
     else if (t.kind === 'web') blog(b, `${u.name} walked into a Sticky Web: ${applyStages(u, { spe: -1 }, b, null)}.`);
     else if (t.kind === 'tspikes') {
       if (u.types.includes('Poison')) { b.hazards = b.hazards.filter(h => h !== t); blog(b, `${u.name} soaked up the Toxic Spikes.`); continue; }
       const st = t.layers >= 2 ? 'tox' : 'psn';
       if (sideHas(b, u.side, 'safeguard')) blog(b, `Safeguard protects ${u.name} from the Toxic Spikes.`);
-      else if (canGetStatus(u, st, null, b, null)) { blog(b, `${u.name} stepped on Toxic Spikes.`); giveStatus(b, u, st, null); }
+      else if (canGetStatus(u, st, null, b, null)) { blog(b, `${u.name} stepped on Toxic Spikes.`); giveStatus(b, u, st, null); u.statusSrc = t.by || null; }
     }
+    delete u.koBy;
   }
 }
 function clearTilesNear(b, u, n = 3) {
@@ -2503,7 +2523,7 @@ function toxicDebris(b, mis, holder, att) {
 function debrisNearest(b, mis, holder, near, n) {   // the Wild AI's pick: open hexes nearest the attacker
   const occ = occupied(b), bl = new Set(mis.blocked || []), att = { pos: near };
   const hexes = (mis.cells || []).filter(k => !bl.has(k) && !occ.has(k)).sort((p, q) => hexDistance(p, att.pos) - hexDistance(q, att.pos)).slice(0, n);
-  hexes.forEach(h => addTile(b, h, holder.side, 'tspikes'));
+  hexes.forEach(h => addTile(b, h, holder.side, 'tspikes', holder.id));
   blog(b, `${holder.name}'s Toxic Debris scattered Toxic Spikes near the attacker.`);
 }
 const sideHas = (b, side, k) => !!timerOn(b, k, side);
@@ -2593,8 +2613,8 @@ function endOfTurnEffects(b, u) {
     if (by && d && !by.fainted) { if (abil(b, u) === 'Liquid Ooze') hurt(b, by, d, `${u.name}'s Liquid Ooze`); else if (!healBlocked(by)) blog(b, `${by.name} drains ${heal(by, d)} HP.`); }
   }
   if (u.fainted) return;
-  if (v.curse) hurt(b, u, u.maxHp / 4, 'the curse');
-  if (v.saltCure) hurt(b, u, u.maxHp / (u.types.some(t => ['Water', 'Steel'].includes(t)) ? 4 : 8), 'Salt Cure');
+  if (v.curse) { u.koBy = typeof v.curse === 'string' ? v.curse : null; hurt(b, u, u.maxHp / 4, 'the curse'); delete u.koBy; }
+  if (v.saltCure) { u.koBy = typeof v.saltCure === 'string' ? v.saltCure : null; hurt(b, u, u.maxHp / (u.types.some(t => ['Water', 'Steel'].includes(t)) ? 4 : 8), 'Salt Cure'); delete u.koBy; }
   if (v.bound) {
     const by = src(v.bound.by);
     if (!by) { delete v.bound; blog(b, `${u.name} is no longer trapped.`); }
@@ -3382,7 +3402,7 @@ async function targetEffect(env, u, t, base, { dealt }) {
     case 'Smack Down': case 'Thousand Arrows': if (hit && !grounded(b, t)) { tv.smackDown = true; delete tv.magnetRise; delete tv.telekinesis; if (tv.charging && ['Fly', 'Bounce'].includes(tv.charging.move)) delete tv.charging; blog(b, `${t.name} fell to the ground!`); } break;
     case 'Tar Shot': tv.tarShot = true; blog(b, `${t.name} is covered in tar — Fire moves hit it twice as hard.`); break;
     case 'Octolock': if (tv.octolock) blog(b, 'But it failed.'); else { tv.octolock = u.id; blog(b, `${t.name} is caught in the Octolock.`); } break;
-    case 'Salt Cure': if (hit && !tv.saltCure) { tv.saltCure = true; blog(b, `${t.name} is being salt cured.`); } break;
+    case 'Salt Cure': if (hit && !tv.saltCure) { tv.saltCure = u.id; blog(b, `${t.name} is being salt cured.`); } break;
     case 'Syrup Bomb': if (hit && !tv.syrup) { tv.syrup = 3; blog(b, `${t.name} is coated in sticky syrup.`); } break;
     case 'Electrify': tv.electrify = true; blog(b, `${t.name}'s next move becomes Electric type.`); break;
     case 'Spotlight': tv.spotlight = u.id; blog(b, `${t.name} is in the spotlight — its foes must aim at it.`); break;
@@ -3521,7 +3541,7 @@ async function selfOrFieldMove(env, u, base, targetIds) {
       if (!u.types.includes('Ghost')) { blog(b, `${u.name}: ${applyStages(u, { spe: -1, atk: 1, def: 1 }, b, u)}.`); return 'done'; }
       const t = b.units[targetIds?.[0]] || foes(b, u).sort((p, q) => (u.pos && p.pos && q.pos && u.pos !== 'table' ? hexDistance(u.pos, p.pos) - hexDistance(u.pos, q.pos) : 0))[0];
       if (!t || t.v?.curse) { blog(b, 'But it failed.'); return 'fail'; }
-      u.hp -= Math.floor(u.maxHp / 2); vol(t).curse = true; blog(b, `${u.name} cut its own HP to lay a curse on ${t.name}!`); if (u.hp <= 0) { u.hp = 0; faint(b, u, null); } return 'done';
+      u.hp -= Math.floor(u.maxHp / 2); vol(t).curse = u.id; blog(b, `${u.name} cut its own HP to lay a curse on ${t.name}!`); if (u.hp <= 0) { u.hp = 0; faint(b, u, null); } return 'done';
     }
     case 'Revival Blessing': {
       const down = Object.values(b.units).filter(x => x.side === u.side && x.owner === u.owner && x.fainted);
@@ -3544,7 +3564,7 @@ async function selfOrFieldMove(env, u, base, targetIds) {
 function startTiles(env, u, kind) {
   const b = env.b;
   if (b.noMap) { blog(b, `${u.name} sets ${HAZARD_NAME[kind]}: place 3 tiles on the table map.`); return true; }
-  if (env.auto) { const hexes = aiTileHexes(b, env.mis, u, 3); hexes.forEach(h => addTile(b, h, u.side, kind)); blog(b, `${u.name} placed ${HAZARD_NAME[kind]} on ${hexes.length} hexes.`); return true; }
+  if (env.auto) { const hexes = aiTileHexes(b, env.mis, u, 3); hexes.forEach(h => addTile(b, h, u.side, kind, u.id)); blog(b, `${u.name} placed ${HAZARD_NAME[kind]} on ${hexes.length} hexes.`); return true; }
   b.turn.step = 'tiles'; b.turn.tiles = { kind, left: 3, by: u.id }; env.keepTurn = true;
   blog(b, `${u.name} sets ${HAZARD_NAME[kind]} — tap 3 hexes for the tiles.`);
   return true;
@@ -3782,7 +3802,9 @@ function addChoice(b, c) { b.choices = [...(b.choices || []), c]; }
 function resolveChoice(b, i, key) {
   const c = (b.choices || [])[i]; if (!c) return;
   b.choices = b.choices.filter((_, j) => j !== i);
-  const u = b.units[c.id]; if (!u || u.fainted) return;
+  const u = b.units[c.id];
+  if (c.kind === 'catch') { const cr = b.units[key]; if (u && cr && !(b.taken || []).includes(u.final)) awardCatch(b, u, cr, true); return; }
+  if (!u || u.fainted) return;
   if (c.kind === 'glut') {
     if (key === 'spe') blog(b, `${u.name}'s Gluttony: ${applyStages(u, { spe: 1 }, b, u)}.`);
     else blog(b, `${u.name}'s Gluttony restores ${heal(u, u.maxHp * .33)} HP.`);
@@ -3790,9 +3812,10 @@ function resolveChoice(b, i, key) {
   if (c.kind === 'debris') debrisNearest(b, { cells: b.grid?.cells || [], blocked: b.grid?.blocked || [] }, u, c.near, c.left);
   if (c.kind === 'imposter') { const t = b.units[key]; if (t && onField(b, t)) doTransform(b, u, t, 'Imposter'); }
 }
-const CHOICE_TEXT = { glut: 'Gluttony: heal 33% of its HP, or Speed +1?', imposter: 'Imposter: which foe does it copy?', debris: 'Toxic Debris: tap open hexes on the map for the Toxic Spikes tiles' };
+const CHOICE_TEXT = { catch: 'No trainer knocked it out. Which Pokémon gets the catch and the KO?', glut: 'Gluttony: heal 33% of its HP, or Speed +1?', imposter: 'Imposter: which foe does it copy?', debris: 'Toxic Debris: tap open hexes on the map for the Toxic Spikes tiles' };
 function choiceOptions(b, c) {
   if (c.kind === 'glut') return [{ key: 'heal', label: 'Heal 33%' }, { key: 'spe', label: 'Speed +1' }];
+  if (c.kind === 'catch') return Object.values(b.units).filter(x => x.side === 'p').map(x => ({ key: x.id, label: `${x.name} (${b.names?.[x.owner] || 'player'})` }));
   if (c.kind === 'debris') return [{ key: 'auto', label: `Place the ${c.left} nearest the attacker` }];
   if (c.kind === 'imposter') return (c.opts || []).map(id => b.units[id]).filter(t => t && onField(b, t)).map(t => ({ key: t.id, label: t.name }));
   return [];
@@ -4295,7 +4318,7 @@ function battleView(el, ctx) {
     hint = `${b.units[ch.id].name}'s Toxic Debris: tap ${ch.left} open hex${ch.left > 1 ? 'es' : ''} for Toxic Spikes (tapping a tile again adds a layer).`;
     tap = key => {
       if (!lit.has(key)) return toast('Pick an open hex');
-      const nb = clone(b), c2 = nb.choices[i], layers = addTile(nb, key, nb.units[c2.id].side, 'tspikes'); c2.left--;
+      const nb = clone(b), c2 = nb.choices[i], layers = addTile(nb, key, nb.units[c2.id].side, 'tspikes', c2.id); c2.left--;
       blog(nb, `Toxic Spikes placed${layers > 1 ? ` (${layers} layers)` : ''}.`);
       if (c2.left <= 0) nb.choices.splice(i, 1);
       save(settle(nb));
@@ -4314,7 +4337,7 @@ function battleView(el, ctx) {
     hint = `Place ${HAZARD_NAME[tl.kind]}: tap ${tl.left} more hex${tl.left > 1 ? 'es' : ''} (tapping a tile again adds a layer).`;
     tap = key => {
       if (!lit.has(key)) return toast('Pick an open hex');
-      const nb = clone(b), t2 = nb.turn.tiles, layers = addTile(nb, key, turnU.side, t2.kind); t2.left--;
+      const nb = clone(b), t2 = nb.turn.tiles, layers = addTile(nb, key, turnU.side, t2.kind, turnU.id); t2.left--;
       blog(nb, `${HAZARD_NAME[t2.kind]} placed${layers > 1 ? ` (${layers} layers)` : ''}.`);
       if (t2.left <= 0) { delete nb.turn.tiles; return save(finishTurnSafe(nb)); }
       save(nb);
@@ -4353,7 +4376,7 @@ function battleView(el, ctx) {
   const aiMode = c.settings?.wildAI || 'off';
   let aiPanel = '', aiDo = null, aiManual = false;
   if (isDM && aiMode === 'on' && b.started && !b.over) {   // the Wild AI answers its own Pokémon's ability choices (Gluttony: heal)
-    const i = (b.choices || []).findIndex(ch => b.units[ch.id]?.side === 'w');
+    const i = (b.choices || []).findIndex(ch => b.units[ch.id]?.side === 'w' && ch.kind !== 'catch');   // the DM always picks catches
     if (i >= 0 && AI_RUN !== 'choice' + (b.log || []).length) { AI_RUN = 'choice' + (b.log || []).length; const ch = b.choices[i], k = choiceOptions(b, ch)[0]?.key || '';
       setTimeout(() => { const nb = clone(b); resolveChoice(nb, i, k); save(settle(nb)); }, 400); }
   }
@@ -4974,6 +4997,7 @@ const newMovesNote = m => { const nm = m.newMoves; if (!nm || !(nm.levelUp?.leng
   return `<div class="newmoves">✨ ${nm.levelUp?.length ? `<b>New moves to learn:</b> ${list(nm.levelUp)}` : ''}${nm.levelUp?.length && nm.tms?.length ? '<br>' : ''}${nm.tms?.length ? `<b>Now allowed as a TM re-roll:</b> ${list(nm.tms)}` : ''}</div>`; };
 async function finishMission(ctx) {
   const { c, mis, cid, misNum, teams } = ctx, b = mis.battle, N = misNum, L = N + 1;
+  if ((b.choices || []).some(ch => ch.kind === 'catch')) return toast('Pick who gets the catch first (shown above the map)');
   if (!confirm(`Finish Mission ${N}? Everyone's Pokémon go to level ${L}, catches join their teams, and players get their re-rolls and EVs.`)) return;
   const kosBy = {}; for (const k of b.kos || []) kosBy[k.by] = (kosBy[k.by] || 0) + 1;
   const bonusMsgs = [];   // Honey Gather / Pickup / Ball Fetch bonus re-rolls (rolled by the app)
@@ -5007,9 +5031,7 @@ async function finishMission(ctx) {
       });
       for (const ct of (b.catches || []).filter(x => x.pid === p.id)) {
         const key = `${N}:${ct.final}`; if (team.some(m => m.catchKey === key)) continue;
-        team.push({ uid: 'm' + Date.now().toString(36) + randInt(1e6).toString(36), final: ct.final, finalName: getLine(ct.final)?.name || ct.species, species: formAtLevel(ct.final, L) || ct.species,
-          pickType: null, level: L, shiny: false, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), evPending: Math.min(510, 10 * L),
-          ivs: null, ivRolls: null, nature: null, natureRolls: null, ability: null, abilitySlot: null, abilityRolls: null, moves: [], step: 'ivs', setupMode: 'catch', catchKey: key });
+        team.push(catchRecord(ct, L, key));
       }
       await DB.set(PLAYER(cid, p.id), { team });
     }
@@ -5017,6 +5039,23 @@ async function finishMission(ctx) {
     await DB.update(CAMP(cid), { takenFinals: [...new Set([...(c.takenFinals || []), ...caught])] });
     await DB.update(MISSION(cid, N), { phase: 'after' });
     toast(`Mission ${N} complete!${bonusMsgs.length ? ' Bonus: ' + bonusMsgs.join(' · ') : ''}`);
+  } catch (e) { saveErr(e); }
+}
+// A new caught Pokémon's team record (set up on the player's phone afterwards)
+const catchRecord = (ct, L, key) => ({ uid: 'm' + Date.now().toString(36) + randInt(1e6).toString(36), final: ct.final, finalName: getLine(ct.final)?.name || ct.species, species: formAtLevel(ct.final, L) || ct.species,
+  pickType: null, level: L, shiny: false, evs: Object.fromEntries(STAT_KEYS.map(k => [k, 0])), evPending: Math.min(510, 10 * L),
+  ivs: null, ivRolls: null, nature: null, natureRolls: null, ability: null, abilitySlot: null, abilityRolls: null, moves: [], step: 'ivs', setupMode: 'catch', catchKey: key });
+// DM, after a mission: give a catch for a wild Pokémon that fainted without being caught (e.g. before the Nov 2026 catch rule)
+async function giveCatchLater(ctx, unitId, pid) {
+  const { c, mis, cid, misNum: N } = ctx, b = mis.battle || {}, u = b.units?.[unitId]; if (!u || !pid) return;
+  if ((c.takenFinals || []).includes(u.final)) return toast(`${u.name} is already taken`);
+  try {
+    const d = await once(PLAYER(cid, pid)), team = [...(d?.team || [])], key = `${N}:${u.final}`;
+    if (!team.some(m => m.catchKey === key)) team.push(catchRecord({ final: u.final, species: u.name }, N + 1, key));
+    await DB.set(PLAYER(cid, pid), { team });
+    await DB.update(CAMP(cid), { takenFinals: [...new Set([...(c.takenFinals || []), u.final])] });
+    await DB.update(MISSION(cid, N), { 'battle.catches': [...(b.catches || []), { pid, final: u.final, species: u.name, by: null, late: true }] });
+    toast(`${b.names?.[pid] || 'Player'} caught ${u.name}!`);
   } catch (e) { saveErr(e); }
 }
 const abilityBySlot = (species, slot) => { const p = getPokemon(species); if (!p) return null; return slot === 'H' ? (p.hidden || p.abilities?.[0]) : slot === '2' ? (p.abilities?.[1] || p.abilities?.[0]) : p.abilities?.[0]; };
