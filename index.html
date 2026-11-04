@@ -104,6 +104,14 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .list-row input { flex: 1; }
 /* Map board */
 .board { width: 100%; height: auto; max-height: 72vh; background: var(--surface-2); border-radius: 12px; display: block; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.mapbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-size: .9rem; }
+.mapwrap { position: relative; } .mapwrap.windowed { padding: 20px; }
+.mapwrap .offarrow { position: absolute; visibility: hidden; border: none; background: none; color: var(--accent); font-size: 16px; line-height: 1; padding: 0; width: 20px; height: 20px; cursor: pointer; }
+.mapwrap .offarrow.left { left: 0; top: 50%; transform: translateY(-50%); } .mapwrap .offarrow.right { right: 0; top: 50%; transform: translateY(-50%); }
+.mapwrap .offarrow.up { top: 0; left: 50%; transform: translateX(-50%); } .mapwrap .offarrow.down { bottom: 0; left: 50%; transform: translateX(-50%); }
+.mapbar input { width: 58px; min-height: 36px; padding: 4px 6px; text-align: center; }
+.mapbar .pan { display: inline-flex; gap: 4px; } .mapbar .pan .icon-btn { width: 36px; height: 36px; min-height: 36px; font-size: .8rem; }
+.mapbar .btn.small { min-height: 36px; padding: 0 10px; }
 .board.mini { height: 150px; aspect-ratio: auto !important; pointer-events: none; }
 .board.tappable g[data-k] { cursor: pointer; }
 .board .cell { fill: var(--surface); stroke: var(--line); stroke-width: .8; }
@@ -214,7 +222,14 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .unitrow[data-edit] { cursor: pointer; } .unitrow[data-edit]:hover { background: var(--surface-2); }
 .unitrow.now { background: var(--accent-soft); } .unitrow.fainted { opacity: .45; }
 .ring { display: inline-flex; border: 3px solid; border-radius: 12px; padding: 1px; flex: none; }
-.log { display: grid; gap: 4px; font-size: .92rem; max-height: 260px; overflow: auto; }
+.log { display: grid; gap: 8px; font-size: .92rem; max-height: 420px; overflow: auto; padding-right: 4px; }
+.logturn { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.logturn.latest { border-color: var(--accent); background: var(--accent-soft); }
+.logturn .who { flex: none; width: 44px; text-align: center; } .logturn .who .spr { width: 44px; height: 44px; }
+.logturn .what { flex: 1; min-width: 0; display: grid; gap: 2px; } .logturn .head { font-weight: 700; } .logturn .head .muted { font-weight: 500; font-size: .85rem; }
+.logturn .line { line-height: 1.35; } .logturn .line + .line { border-top: 1px dashed var(--line); padding-top: 2px; }
+.tgtinfo { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 2px; }
+.already { font-size: .72rem; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--warn-soft); color: #8a5a00; }
 .orderstrip { font-size: .9rem; } .hint { font-weight: 600; color: var(--accent); }
 .pill.warn { background: var(--warn-soft); color: #8a5a00; font-weight: 600; white-space: normal; }
 .pill.up { background: var(--ok-soft); } .pill.down { background: var(--bad-soft); }
@@ -795,7 +810,7 @@ function screenDM(cid) {
         : `${ch ? chaseBar(c, mis) : ''}${hasSymbols && !mis.draft ? `<div class="row"><button class="btn primary" id="startChase">▶ ${ch ? 'Restart' : 'Start'} the chase</button><span class="muted">Random order each round · move up to a D4</span></div>` : ''}`}
       <div class="muted" id="hint">${sel ? 'Tap a hex to move the selected token, or tap it again to cancel.' : 'Tap a token, then tap where it goes (DM moves don\'t use up a turn). Players move their own on their phones.'}</div>
       ${off.length ? `<div class="row"><span class="muted">Not on the map:</span>${off.map(p => `<button class="chip ${sel === 'tray:' + p.id ? 'on' : ''}" data-tray="${p.id}"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)}</button>`).join('')}</div>` : ''}
-      <svg class="board" id="board"></svg>
+      <svg class="board" id="board" data-view="chase"></svg>
       ${found.length ? `<div class="stack" style="--gap:6px"><div style="font-weight:650">Type symbols reached</div>
         ${found.map(([t, pid]) => `<div class="row">${typeBadge(+t)}<span>${esc((c.players || []).find(p => p.id === pid)?.name || '?')} reached <b>${TYPES[t - 1]}</b></span><div class="spacer"></div>${mis.draft ? '' : `<button class="btn small ghost" data-undo="${t}">Undo</button>`}</div>`).join('')}
       </div>` : ''}
@@ -974,7 +989,7 @@ function screenMapSetup(cid) {
       <div class="card stack">
         <div class="seg" id="toolSeg">${tools.map(([k, l]) => `<button aria-pressed="${k === ed.tool}" data-v="${k}">${l}</button>`).join('')}</div>
         <div class="muted">${hints[ed.tool]}</div>
-        <svg class="board" id="edBoard"></svg>
+        <svg class="board" id="edBoard" data-view="setup"></svg>
         <div class="row">
           <label class="row" style="cursor:pointer"><input type="checkbox" id="useSym" ${ed.useSymbols ? 'checked' : ''}> Type symbols (starter chase)</label>
           <div class="spacer"></div>
@@ -1140,7 +1155,7 @@ function screenPlayer(cid, pid) {
           ${myTurn ? `<div class="yourturn">${mis.chase.roll
               ? `<div><b>You rolled ${mis.chase.roll}.</b> Tap a lit hex to move there.</div><button class="btn" id="stay">Stay here</button>`
               : `<div><b>Your turn!</b> Roll to move.</div><button class="btn primary" id="rollMove">🎲 Roll D4</button>`}</div>` : ''}
-          <svg class="board" id="board"></svg>
+          <svg class="board" id="board" data-view="chase"></svg>
           ${myFound.length ? `<div class="row">${myFound.map(t => `${typeBadge(t)}<b>${TYPES[t - 1]}</b>`).join(' ')}<span class="muted">reached</span></div>` : ''}`}
         </div>` : ''}
         ${m0 ? '' : '<div id="missionArea"></div>'}
@@ -1523,7 +1538,7 @@ function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is w
   if (blocked(b)) return;
   const u = pickNext(b); if (!u) return;
   b.turn = { id: u.id, step: 'move', roll: null };
-  blog(b, `— ${u.name}'s turn (${sideName(b, u)})`);
+  blog(b, `⟦${u.id}⟧— ${u.name}'s turn (${sideName(b, u)})`);   // ⟦id⟧ lets the log show whose turn it was (hidden when shown)
   if (!beginTurn(b, u)) return finishTurn(b);   // recharging, still flinching, or knocked out at the start
   b.turn.step = firstStep(b, u);
   if (abil(b, u) === 'Truant') {   // Truant: every other turn is spent loafing around
@@ -1531,7 +1546,7 @@ function startTurn(b) {   // hand the turn to the next Pokémon, if nothing is w
     ab(u).loaf = true;
   }
 }
-const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-60); markSeen(b, msg); };
+const blog = (b, msg) => { b.log = [...(b.log || []), msg].slice(-200); markSeen(b, msg); };
 const sideName = (b, u) => u.side === 'w' ? 'wild' : (b.names?.[u.owner] || 'player');
 
 // End of turn: burn and poison damage, then the next turn.
@@ -1556,7 +1571,7 @@ function finishTurn(b) {
   weatherForms(b); commanderCheck(b); fieldUnits(b).forEach(x => checkConsumables(b, x));
   if (b.bonus) {   // Instruct: the target takes its extra action now
     const bo = b.bonus, x = b.units[bo.id]; delete b.bonus;
-    if (x && onField(b, x) && !b.over) { b.turn = { id: x.id, step: 'act', roll: null, forced: bo.move, bonus: true }; blog(b, `— ${x.name} takes an extra action (Instruct)`); return; }
+    if (x && onField(b, x) && !b.over) { b.turn = { id: x.id, step: 'act', roll: null, forced: bo.move, bonus: true }; blog(b, `⟦${x.id}⟧— ${x.name} takes an extra action (Instruct)`); return; }
   }
   startTurn(b);
 }
@@ -3604,6 +3619,34 @@ function redirectFor(b, mis, u, mv) {
   for (const x of cands) for (const h of hexes) if (hitsFrom(b, mis, u, mv, h).foes.some(f => f.id === x.id)) return x;
   return null;
 }
+// Short tags drawn on a Pokémon's map token (next to its status badge)
+function boardTags(u) {
+  const v = u.v || {}, t = [];
+  if (v.confused) t.push('CNF'); if (v.love) t.push('LOVE'); if (v.leechSeed) t.push('SEED'); if (v.yawn) t.push('YAWN');
+  if (v.taunt) t.push('TNT'); if (v.encore) t.push('ENC'); if (v.disable) t.push('DIS'); if (v.torment) t.push('TRM'); if (v.curse) t.push('CRS');
+  if (v.perish != null) t.push('PER ' + v.perish); if (v.bound) t.push('BND'); if (v.trappedBy || v.octolock) t.push('TRAP'); if (v.sub) t.push('SUB');
+  if (v.protect || v.endure) t.push('PROT'); if (v.flinchSkip) t.push('FLN'); if (v.healBlock) t.push('HBK'); if (v.saltCure) t.push('SALT');
+  if (v.recharge) t.push('RCH'); if (v.charging) t.push('CHG'); if (v.locked) t.push('LOCK');
+  return t;
+}
+// "Already …": the move would do nothing more to this target because it already has that effect (shown while picking moves and targets)
+function alreadyHas(b, mv, x) {
+  const v = x.v || {}, n = mv?.name, fx = mv?.fx || {};
+  if (!n) return '';
+  if (n === 'Leech Seed') return v.leechSeed ? 'Already seeded' : x.types.includes('Grass') ? "Grass: can't be seeded" : '';
+  if (n === 'Taunt' && v.taunt) return 'Already taunted';
+  if (n === 'Encore' && v.encore) return 'Already encored';
+  if (n === 'Disable' && v.disable) return 'Already disabled';
+  if (n === 'Torment' && v.torment) return 'Already tormented';
+  if (n === 'Yawn' && (v.yawn || x.status)) return v.yawn ? 'Already drowsy' : 'Already has a status';
+  if (['Attract', 'Captivate'].includes(n) && v.love) return 'Already in love';
+  if (CONFUSE_STATUS.has(n) && mv.category === 'Status' && v.confused) return 'Already confused';
+  if (n === 'Curse' && v.curse) return 'Already cursed';
+  if (['Mean Look', 'Block', 'Octolock'].includes(n) && (v.trappedBy || v.octolock)) return 'Already trapped';
+  if (n === 'Perish Song' && v.perish != null) return 'Already counting down';
+  if (mv.category === 'Status' && fx.status && x.status) return 'Already has a status';
+  return '';
+}
 // Little tags for what's affecting a Pokémon (shown next to its status)
 function volChips(b, u) {
   const v = u.v || {}, out = [];
@@ -4394,7 +4437,7 @@ function battleView(el, ctx) {
         const isFoe = x => isEnemy(b, turnU, x);   // (Mission 12: Zangoose / Seviper see only each other)
         const card = (x, on, attr) => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv);
           return `<button class="target ${on ? 'on' : ''} side-${x.side}" ${attr}>${monImg(x.name, x.shiny, 'spr sm')}<div><b>${esc(x.name)}</b> <span class="muted">${isFoe(x) ? esc(sideName(b, x)) : 'ally'}</span>
-            <div class="types">${shownTypes(x, isDM).map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${abilityHidden(b, x, isDM) ? '?' : esc(abil(b, x) || '')}</div>${hpBar(x)}${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
+            <div class="types">${shownTypes(x, isDM).map(t2 => `<i class="tchip t-${t2}">${t2}</i>`).join('')}</div><div class="abil">${abilityHidden(b, x, isDM) ? '?' : esc(abil(b, x) || '')}</div>${hpBar(x)}<div class="tgtinfo">${statusChip(x)} ${volChips(b, x)} ${alreadyHas(b, mv, x) ? `<span class="already">${esc(alreadyHas(b, mv, x))}</span>` : ''}</div>${e !== null ? `<div class="eff e${String(e).replace('.', '')}">${effLabel(e)}</div>` : ''}</div></button>`; };
         let pick = '', allyBtn = '';
         const allyToggle = n => n ? `<button class="btn small ghost" data-act="allies">${BUI.allies ? 'Hide allies' : `Show allies (${n})`}</button>` : '';
         if (R.kind === 'self') pick = `<div class="muted">${R.sh.kind === 'field' ? 'Affects the field — no target to pick.' : `Targets ${esc(turnU.name)} itself${mv.target !== 'Self' ? ' / its side' : ''}.`}</div>`;
@@ -4404,7 +4447,7 @@ function battleView(el, ctx) {
           if (BUI.dir != null && !shown.some(d => d.dir === BUI.dir)) BUI.dir = null;
           BUI.targets = BUI.dir == null ? [] : R.dirs[BUI.dir].hit.map(x => x.id);
           pick = `<div><b>Choose a direction</b> <span class="muted">(${esc(R.sh.text)}: hits every Pokémon in the first ${R.sh.n} hex${R.sh.n > 1 ? 'es' : ''}, allies too — or tap a lit hex)</span></div>
-            <div class="targets">${shown.map(d => `<button class="target dir ${BUI.dir === d.dir ? 'on' : ''}" data-dir="${d.dir}"><span class="arrow">${DIR_ARROW[d.dir]}</span><div class="stack" style="--gap:4px">${d.hit.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv); return `<div class="row" style="--gap:6px">${monImg(x.name, x.shiny, 'spr xs')}<b>${esc(x.name)}</b>${isFoe(x) ? '' : ' <span class="muted">ally</span>'}${e !== null ? ` <span class="eff e${String(e).replace('.', '')}">${effShort(e)}</span>` : ''}</div>`; }).join('')}</div></button>`).join('') || '<div class="muted">No enemy in reach. Move closer, or end your turn.</div>'}</div>`;
+            <div class="targets">${shown.map(d => `<button class="target dir ${BUI.dir === d.dir ? 'on' : ''}" data-dir="${d.dir}"><span class="arrow">${DIR_ARROW[d.dir]}</span><div class="stack" style="--gap:4px">${d.hit.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), mv); return `<div class="row" style="--gap:6px;flex-wrap:wrap">${monImg(x.name, x.shiny, 'spr xs')}<b>${esc(x.name)}</b>${isFoe(x) ? '' : ' <span class="muted">ally</span>'}${e !== null ? ` <span class="eff e${String(e).replace('.', '')}">${effShort(e)}</span>` : ''} <span class="muted" style="font-size:.85rem">${x.hp}/${x.maxHp} HP</span> ${statusChip(x)} ${volChips(b, x)} ${alreadyHas(b, mv, x) ? `<span class="already">${esc(alreadyHas(b, mv, x))}</span>` : ''}</div>`; }).join('')}</div></button>`).join('') || '<div class="muted">No enemy in reach. Move closer, or end your turn.</div>'}</div>`;
           allyBtn = allyToggle(allyOnly);
         } else if (R.kind === 'aoe') {
           BUI.targets = R.units.map(x => x.id);
@@ -4436,7 +4479,7 @@ function battleView(el, ctx) {
           const m2 = getMove(name); if (!m2) return '';
           const R = moveReach(b, mis, turnU, m2); if (R.kind === 'self') return '';
           const es = reachUnits(R).filter(x => x.side !== turnU.side);
-          return `<div class="reach">${es.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), m2); return `<span class="rchip ${e === null ? '' : 'e' + String(e).replace('.', '')}">${monImg(x.name, x.shiny, 'spr xs')}${e === null ? '' : effShort(e)}</span>`; }).join('') || '<span class="muted" style="font-size:.8rem">No enemy in reach</span>'}</div>`;
+          return `<div class="reach">${es.map(x => { const e = effAgainst(b, turnU, viewAs(b, x, isDM), m2), al = alreadyHas(b, m2, x); return `<span class="rchip ${e === null ? '' : 'e' + String(e).replace('.', '')}" ${al ? `title="${esc(al)}" style="opacity:.6"` : ''}>${monImg(x.name, x.shiny, 'spr xs')}${e === null ? '' : effShort(e)}${al ? ` <span class="already">${esc(al.replace(/^Already /, ''))}</span>` : ''}</span>`; }).join('') || '<span class="muted" style="font-size:.8rem">No enemy in reach</span>'}</div>`;
         };
         const forced = forcedMove(b, turnU), sleepy = t.sleepAct, struggling = !sleepy && !forced && usableMoves(b, turnU)[0] === 'Struggle';
         const list = sleepy ? (turnU.moves || []).filter(m => ['Snore', 'Sleep Talk'].includes(m)) : forced ? [forced] : struggling ? ['Struggle'] : (turnU.moves || []);
@@ -4467,7 +4510,7 @@ function battleView(el, ctx) {
     ${turnHTML}
     ${waits.length ? `<div class="card stack">${waits.join('')}</div>` : ''}
     ${bench.length && !b.over ? `<div class="row"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
-    ${b.noMap ? '' : `${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard"></svg>`}
+    ${b.noMap ? '' : `${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard" data-view="battle"></svg>`}
     ${order.length && b.started && !b.over ? `<div class="row orderstrip"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>
       <div class="meters card">${meterRows}</div>` : ''}
     ${last ? `<details class="card"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
@@ -4475,7 +4518,7 @@ function battleView(el, ctx) {
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Players</h2>${units.filter(u => u.side === 'p').map(unitRow).join('')}</div>
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Wild</h2>${shownWild.map(unitRow).join('') || '<div class="muted">None revealed yet.</div>'}</div>
     </div>
-    <div class="card"><h2>Battle log</h2><div class="log">${(b.log || []).slice(-14).reverse().map(l => `<div>${esc(l)}</div>`).join('')}</div>
+    <div class="card"><h2>Battle log</h2><div class="log">${logHTML(b)}</div>
       <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities and moves tagged "Not automated" are applied by hand (DM: tap a Pokémon to edit it).</div></div>
     ${isDM ? `<div class="row">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
       <button class="btn small ghost" data-act="restart">↺ Restart mission</button>
@@ -4485,7 +4528,7 @@ function battleView(el, ctx) {
   if (!b.noMap) renderBoard(el.querySelector('#bboard'), {
     cells: mis.cells, blocked: mis.blocked, starts: mis.starts, wilds: mis.wilds, reach: lit, aim,
     selected: turnU?.pos && turnU.pos !== 'table' ? turnU.pos : null,
-    units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer, status: u.status, hidden: !!(u.v?.charging && SEMI_INVULN[u.v.charging.move]) })),
+    units: units.filter(u => onField(b, u)).map(u => ({ key: u.pos, img: spriteUrl(getPokemon(u.name), u.shiny), ring: ringOf(u), hp: u.hp / u.maxHp, mine: u.side === 'p' && u.owner === viewer, status: u.status, tags: boardTags(u), hidden: !!(u.v?.charging && SEMI_INVULN[u.v.charging.move]) })),
     tiles: (b.hazards || []).map(h => ({ key: h.hex, text: HAZARD_ICON[h.kind] + (h.layers > 1 ? h.layers : ''), color: h.side === 'w' ? 'var(--ink)' : 'var(--accent)' }))
   }, tap || (isDM ? key => { const u = units.find(x => onField(b, x) && x.pos === key); if (u) { BUI.dmMove = u.id; ctx.redraw(); } } : null));
 
@@ -4599,6 +4642,24 @@ function battleView(el, ctx) {
   });
 }
 const finishTurnSafe = nb => { finishTurn(nb); return nb; };
+// The battle log, one box per turn (newest on top), with the sprite of whose turn it was on the left
+function logHTML(b, maxTurns = 12) {
+  const blocks = []; let cur = { id: null, head: null, lines: [] };
+  for (const raw of b.log || []) {
+    const m = /^(?:⟦([^⟧]+)⟧)?— (.*)$/.exec(raw);
+    if (m) { blocks.push(cur); cur = { id: m[1] || null, head: m[2], lines: [] }; continue; }
+    cur.lines.push(raw);
+  }
+  blocks.push(cur);
+  const unitFor = blk => blk.id ? b.units[blk.id] : Object.values(b.units).find(u => blk.head && blk.head.startsWith(u.name + "'s turn"));
+  return blocks.filter(x => x.head || x.lines.length).slice(-maxTurns).reverse().map((blk, i) => {
+    const u = unitFor(blk);
+    const hm = blk.head ? /^(.*?)(?: \(([^)]*)\))?$/.exec(blk.head) : null;
+    const head = hm ? esc(hm[1]) + (hm[2] ? ` <span class="muted">· ${esc(hm[2])}</span>` : '') : 'Battle setup';
+    return `<div class="logturn ${i === 0 ? 'latest' : ''}"><div class="who">${u ? monImg(u.name, u.shiny, 'spr') : ''}</div>
+      <div class="what"><div class="head">${head}</div>${blk.lines.map(l => `<div class="line">${esc(l)}</div>`).join('') || '<div class="line muted">…</div>'}</div></div>`;
+  }).join('');
+}
 function reachableInBattle(b, mis, u, steps) {   // pass through other Pokémon, not blocked hexes; can't stop on a Pokémon
   const cells = new Set(mis.cells), bl = new Set(mis.blocked || []), occ = occupied(b);
   const seen = new Set([u.pos]); let frontier = [u.pos];
@@ -5263,8 +5324,10 @@ function renderBoard(svg, o, onTap) {
   const pts = all.map(xy), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   const minX = Math.min(...xs) - W, minY = Math.min(...ys) - S * 1.3;
   const vw = Math.max(...xs) - minX + W, vh = Math.max(...ys) - minY + S * 1.3;
-  svg.setAttribute('viewBox', `${minX} ${minY} ${vw} ${vh}`);
-  svg.style.aspectRatio = `${vw} / ${vh}`;   // the box takes the map's own proportions (no empty bands)
+  // Map window (zoom): each device can show just W × H hexes of a big map and pan around (drag, or the arrows)
+  const win = svg.dataset.view ? mapWindow(svg, o, { minX, minY, vw, vh, W, S }) : null;
+  if (win) { svg.setAttribute('viewBox', `${win.x} ${win.y} ${win.w} ${win.h}`); svg.style.aspectRatio = `${win.w} / ${win.h}`; svg.style.touchAction = 'none'; }
+  else { svg.setAttribute('viewBox', `${minX} ${minY} ${vw} ${vh}`); svg.style.aspectRatio = `${vw} / ${vh}`; svg.style.touchAction = ''; }   // the box takes the map's own proportions (no empty bands)
   const blocked = new Set(o.blocked || []), starts = new Set(o.starts || []), wilds = new Set(o.wilds || []);
   let h = `<defs><clipPath id="tclip"><circle cx="22" cy="22" r="21"/></clipPath></defs>`;
   for (const k of o.ghosts || []) { const [x, y] = xy(k); h += `<g data-k="${k}"><polygon class="cell ghost" points="${poly(x, y, S * .96)}"/></g>`; }
@@ -5289,13 +5352,111 @@ function renderBoard(svg, o, onTap) {
     const [x, y] = xy(u.key), w = S * 1.5;
     h += `<g class="unit${u.mine ? ' mine' : ''}"${u.hidden ? ' style="opacity:.45"' : ''}><polygon points="${poly(x, y, S * .9)}" class="ubg" style="stroke:${u.ring}"/>${u.img ? `<image href="${pic(u.img)}" x="${x - w / 2}" y="${y - w / 2 - 1}" width="${w}" height="${w}"/>` : ''}
       <rect x="${x - 6}" y="${y + 5.6}" width="12" height="1.8" rx=".9" class="hpbg"/><rect x="${x - 6}" y="${y + 5.6}" width="${(12 * Math.max(0, u.hp)).toFixed(2)}" height="1.8" rx=".9" fill="${u.hp > .5 ? 'var(--ok)' : u.hp > .2 ? '#e0a400' : 'var(--bad)'}"/></g>`;
+    (u.tags || []).slice(0, 3).forEach((tg, i, arr) => {   // other effects (confusion, Leech Seed …) stack down the left side
+      const more = i === 2 && u.tags.length > 3, txt = more ? `+${u.tags.length - 2}` : tg, wd = Math.max(7, 1.9 * txt.length + 2.2);
+      badges += `<g class="stbadge"><rect x="${x - 1.2 - wd}" y="${y - 9 + i * 4.8}" width="${wd}" height="4.4" rx="1.4" fill="#eef1f6" stroke="#4a5568" stroke-width=".35"/><text x="${x - 1.2 - wd / 2}" y="${y - 6.75 + i * 4.8}" fill="#2d3748">${esc(txt)}</text></g>`;
+    });
     if (u.status && STATUS_COLOR[u.status]) badges += `<g class="stbadge"><rect x="${x + 1.2}" y="${y - 9}" width="9" height="4.4" rx="1.4" fill="${STATUS_COLOR[u.status][0]}" stroke="${STATUS_COLOR[u.status][1]}" stroke-width=".35"/><text x="${x + 5.7}" y="${y - 6.75}" fill="${STATUS_COLOR[u.status][1]}">${STATUS_SHORT[u.status]}</text></g>`;
   }
   if (o.selected) { const [x, y] = xy(o.selected); h += `<polygon class="sel" points="${poly(x, y, S * 1.02)}"/>`; }
   h += badges;
   svg.innerHTML = h;
-  svg.onclick = onTap ? e => { const g = e.target.closest('[data-k]'); if (g) onTap(g.dataset.k); } : null;
+  if (svg.dataset.view) setOffArrows(svg, win ? offscreenDirs(o, win, xy) : new Set());
+  svg.onclick = onTap || win ? e => {
+    if (svg._dragged) { svg._dragged = false; return; }   // that was a drag, not a tap
+    const pan = e.target.closest('[data-pan]'); if (pan) return panWindow(svg, pan.dataset.pan);
+    const g = e.target.closest('[data-k]'); if (g && onTap) onTap(g.dataset.k);
+  } : null;
   svg.classList.toggle('tappable', !!onTap);
+}
+// ---- Map window (Nov 3 2026): per-device W × H hex view with panning ----
+// Saved on this device only (localStorage): { cols, rows } or { all: true }. With nothing saved, phones get a size that keeps
+// each hex about 44 px wide (Apple's minimum comfortable tap size) and the board under about half the screen height.
+const MAPVIEW_KEY = 'pt-mapview', MAP_PAN = {};
+const savedView = () => { try { return JSON.parse(localStorage.getItem(MAPVIEW_KEY) || 'null'); } catch { return null; } };
+const saveView = v => { try { v ? localStorage.setItem(MAPVIEW_KEY, JSON.stringify(v)) : localStorage.removeItem(MAPVIEW_KEY); } catch {} };
+function autoView() {
+  const vw = Math.min(window.innerWidth, document.documentElement.clientWidth || window.innerWidth), vh = window.innerHeight;
+  if (vw >= 700) return null;   // tablets and computers: the whole map
+  const avail = vw - 40, cols = Math.max(5, Math.floor(avail / 44)), hexW = avail / cols, rowH = .866 * hexW;
+  return { cols, rows: Math.max(5, Math.floor((.5 * vh - .5 * hexW / Math.sqrt(3)) / rowH)), auto: true };
+}
+const currentView = () => { const s = savedView(); return s ? (s.all ? null : s) : autoView(); };
+function mapWindow(svg, o, m) {
+  ensureMapBar(ensureWrap(svg), svg); svg._win = null;
+  const v = currentView(); if (!v || !v.cols || !v.rows) return null;
+  const w = Math.min(m.vw, v.cols * m.W + m.W), h = Math.min(m.vh, v.rows * 1.5 * m.S + m.S * 1.4);
+  if (w >= m.vw && h >= m.vh) return null;   // the whole map already fits
+  const key = svg.dataset.view, xy = k => { const [q, r] = k.split(',').map(Number); return [m.W * (q + r / 2), 1.5 * m.S * r]; };
+  let p = MAP_PAN[key];
+  if (!p) {   // first look: center on the selected hex (whose turn it is), else the middle of the map
+    const f = o.selected || o.focus; p = f ? (([x, y]) => ({ cx: x, cy: y }))(xy(f)) : { cx: m.minX + m.vw / 2, cy: m.minY + m.vh / 2 };
+  }
+  p.cx = Math.max(m.minX + w / 2, Math.min(m.minX + m.vw - w / 2, p.cx)); p.cy = Math.max(m.minY + h / 2, Math.min(m.minY + m.vh - h / 2, p.cy));
+  MAP_PAN[key] = p; svg._win = { ...m, w, h };
+  wireDrag(svg);
+  return { x: p.cx - w / 2, y: p.cy - h / 2, w, h };
+}
+function panWindow(svg, dir) {   // the arrows move the window by half its size
+  const p = MAP_PAN[svg.dataset.view], m = svg._win; if (!p || !m) return;
+  const dx = { left: -1, right: 1 }[dir] || 0, dy = { up: -1, down: 1 }[dir] || 0;
+  p.cx += dx * m.w / 2; p.cy += dy * m.h / 2; svg._again?.();
+}
+function wireDrag(svg) {   // drag / swipe to pan; a tiny movement still counts as a tap
+  if (svg._dragWired) return; svg._dragWired = true;
+  let st = null;
+  svg.addEventListener('pointerdown', e => { const p = MAP_PAN[svg.dataset.view]; if (!p || !svg._win) return; st = { x: e.clientX, y: e.clientY, cx: p.cx, cy: p.cy, moved: false }; });
+  svg.addEventListener('pointermove', e => {
+    if (!st) return; const dx = e.clientX - st.x, dy = e.clientY - st.y;
+    if (!st.moved && Math.hypot(dx, dy) < 8) return;
+    st.moved = true; const m = svg._win, k = m.w / Math.max(1, svg.clientWidth), p = MAP_PAN[svg.dataset.view];
+    p.cx = Math.max(m.minX + m.w / 2, Math.min(m.minX + m.vw - m.w / 2, st.cx - dx * k)); p.cy = Math.max(m.minY + m.h / 2, Math.min(m.minY + m.vh - m.h / 2, st.cy - dy * k));
+    svg.setAttribute('viewBox', `${p.cx - m.w / 2} ${p.cy - m.h / 2} ${m.w} ${m.h}`);
+  });
+  const end = () => { if (st?.moved) { svg._dragged = true; svg._again?.(); setTimeout(() => { svg._dragged = false; }, 0); } st = null; };
+  svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end); svg.addEventListener('pointerleave', () => { if (st?.moved) end(); else st = null; });
+}
+// The board sits in a frame; red arrows outside the map's edges point to things you can act on that are off-screen (tap to pan)
+function ensureWrap(svg) {
+  if (svg.parentNode?.classList?.contains('mapwrap')) return svg.parentNode;
+  const wrap = document.createElement('div'); wrap.className = 'mapwrap';
+  svg.parentNode.insertBefore(wrap, svg); wrap.appendChild(svg);
+  for (const d of ['left', 'right', 'up', 'down']) {
+    const a = document.createElement('button'); a.className = 'offarrow ' + d; a.dataset.dir = d; a.setAttribute('aria-label', 'More this way');
+    a.textContent = { left: '◀', right: '▶', up: '▲', down: '▼' }[d]; a.onclick = () => panWindow(svg, d); wrap.appendChild(a);
+  }
+  return wrap;
+}
+function offscreenDirs(o, win, xy) {
+  const keys = [...(o.reach || []), ...(o.aim || []), ...(o.selected ? [o.selected] : [])], dirs = new Set();
+  for (const k of keys) { const [x, y] = xy(k); if (x < win.x) dirs.add('left'); if (x > win.x + win.w) dirs.add('right'); if (y < win.y) dirs.add('up'); if (y > win.y + win.h) dirs.add('down'); }
+  return dirs;
+}
+function setOffArrows(svg, dirs) {
+  const wrap = svg.parentNode; if (!wrap?.classList?.contains('mapwrap')) return;
+  wrap.classList.toggle('windowed', !!svg._win);
+  wrap.querySelectorAll('.offarrow').forEach(a => { a.style.visibility = dirs.has(a.dataset.dir) ? 'visible' : 'hidden'; });
+}
+// The View W × H boxes and the pan buttons, under the board (one setting per device, shared by every board)
+function ensureMapBar(wrap, svg) {
+  if (wrap.nextElementSibling?.classList?.contains('mapbar')) return refreshMapBar(wrap.nextElementSibling);
+  const bar = document.createElement('div'); bar.className = 'mapbar';
+  bar.innerHTML = `<span class="muted">View</span><input type="number" min="0" max="99" data-mv="cols" aria-label="Width in hexes"><span>×</span><input type="number" min="0" max="99" data-mv="rows" aria-label="Height in hexes">
+    <button class="btn small ghost" data-mv="all" title="Show the whole map">All</button><button class="btn small ghost" data-mv="auto" title="The best size for this screen">Fit</button>
+    <span class="spacer"></span><span class="pan"><button class="icon-btn" data-mvpan="left" aria-label="Pan left">◀</button><button class="icon-btn" data-mvpan="up" aria-label="Pan up">▲</button><button class="icon-btn" data-mvpan="down" aria-label="Pan down">▼</button><button class="icon-btn" data-mvpan="right" aria-label="Pan right">▶</button></span>`;
+  wrap.parentNode.insertBefore(bar, wrap.nextSibling);
+  const set = () => { const c = parseInt(bar.querySelector('[data-mv="cols"]').value) || 0, r = parseInt(bar.querySelector('[data-mv="rows"]').value) || 0; saveView(c && r ? { cols: c, rows: r } : { all: true }); svg._again?.(); refreshMapBar(bar); };
+  bar.querySelectorAll('input').forEach(i => i.onchange = set);
+  bar.querySelector('[data-mv="all"]').onclick = () => { saveView({ all: true }); svg._again?.(); refreshMapBar(bar); };
+  bar.querySelector('[data-mv="auto"]').onclick = () => { saveView(null); svg._again?.(); refreshMapBar(bar); };
+  bar.querySelectorAll('[data-mvpan]').forEach(x => x.onclick = () => panWindow(svg, x.dataset.mvpan));
+  refreshMapBar(bar);
+}
+function refreshMapBar(bar) {
+  const v = currentView(), [c, r] = [bar.querySelector('[data-mv="cols"]'), bar.querySelector('[data-mv="rows"]')];
+  if (document.activeElement !== c) c.value = v ? v.cols : ''; if (document.activeElement !== r) r.value = v ? v.rows : '';
+  c.placeholder = r.placeholder = 'All';
+  bar.querySelector('.pan').style.display = v ? '' : 'none';
 }
 
 // ═══ 7. START-UP ═══════════════════════════════════════════════════════
