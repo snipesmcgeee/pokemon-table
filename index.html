@@ -1466,12 +1466,15 @@ const isFinaleWild = (final, level) => String(final) === String(FINALE.final) &&
 // Zangoose and Seviper only target each other. KO'd by the rival → full HP, +1 Atk/Def/SpA/SpD/Spe, placed next to the rival as far
 // from the trainers as possible (no limit; no KO credit). A trainer KO is a normal KO + catch, and the survivor keeps its boosts and
 // turns on the trainers. The Rockruff fight normally, but nothing the trainers do affects them until Zangoose and Seviper are both down.
-const FEUD = { mission: 12, pair: [219, 220], shielded: [452, 453, 454] };
+const FEUD = { mission: 12, pair: [219, 220], shielded: [452, 453, 454], start: 4, final: 6 };
+// Nov 3 2026 update (Jack): they start at +4. Every KO (by anyone) before they reach +6 brings them back with +1 more;
+// at +6 a trainer KO is final (a catch), and a KO by the rival still brings it back. feudLevel counts this (stat drops don't change it).
 const wildIdOf = final => 'w_' + String(final).replace(/\W/g, '_');
 function feudSetup(final, level) {
   if (level !== FEUD.mission) return {};
   const i = FEUD.pair.map(String).indexOf(String(final));
-  if (i >= 0) return { feud: wildIdOf(FEUD.pair[1 - i]), feudPair: true };
+  if (i >= 0) return { feud: wildIdOf(FEUD.pair[1 - i]), feudPair: true, feudLevel: FEUD.start,
+    stages: Object.fromEntries(STAGE_KEYS.map(k => [k, ['atk', 'def', 'spa', 'spd', 'spe'].includes(k) ? FEUD.start : 0])) };
   return FEUD.shielded.map(String).includes(String(final)) ? { feudShield: true } : {};
 }
 function unitFromWild(final, level, setup, random = false) {   // random = true when a battle starts (preview uses an even split)
@@ -1578,12 +1581,15 @@ const feudActive = b => Object.values(b.units).some(x => x.feudPair && !x.fainte
 const isEnemy = (b, u, x) => u.feud ? x.id === u.feud : x.side !== u.side;
 // The Rockruff are untouchable by the trainers while the feud goes on
 const shieldedFrom = (b, t, src) => !!(t?.feudShield && src && src.side === 'p' && t.side !== 'p' && feudActive(b));
-// KO'd by its rival: back to full HP with +1 to its five stats, next to the rival and as far from the trainers as possible
-function feudRevive(b, v, rival) {
+// Knocked out before it's done: back to full HP (+1 to its five stats while it's below +6), next to its rival, as far from the trainers as possible
+function feudRevive(b, v, killer) {
+  const rival = v.feud && b.units[v.feud] && onField(b, b.units[v.feud]) ? b.units[v.feud] : null, up = (v.feudLevel ?? FEUD.final) < FEUD.final;
   dropVolatiles(b, v);
   v.hp = v.maxHp; v.status = null; v.slp = 0; v.tox = 0; delete v.koBy;
-  for (const k of ['atk', 'def', 'spa', 'spd', 'spe']) v.stages[k] = Math.min(6, (v.stages[k] || 0) + 1);
-  blog(b, `${v.name} was knocked down by ${rival.name}… and gets right back up, angrier than ever! Full HP, +1 ATK, DEF, SP ATK, SP DEF, SPD.`);
+  if (up) { v.feudLevel++; for (const k of ['atk', 'def', 'spa', 'spd', 'spe']) v.stages[k] = Math.min(6, (v.stages[k] || 0) + 1); }
+  const left = FEUD.final - v.feudLevel;
+  blog(b, `${v.name} was knocked down${killer ? ` by ${killer.name}` : ''}… and gets right back up${up ? `, angrier than ever! Full HP, +1 ATK, DEF, SP ATK, SP DEF, SPD (now +${v.feudLevel})` : ' at full HP'}.${left > 0 ? ` ${left} more KO${left > 1 ? 's' : ''} before it can be caught.` : ' Now a trainer can knock it out for good.'}`);
+  if (!rival) return;
   if (b.noMap || !rival.pos || rival.pos === 'table') { blog(b, `Place ${v.name} next to ${rival.name}, as far from the trainers as possible.`); return; }
   const cells = new Set(b.grid?.cells || []), bl = new Set(b.grid?.blocked || []), occ = occupied(b); occ.delete(v.pos);
   const [q, r0] = rival.pos.split(',').map(Number), trainers = fieldUnits(b).filter(x => x.side === 'p' && x.pos && x.pos !== 'table');
@@ -1594,7 +1600,10 @@ function feudRevive(b, v, rival) {
 // A Pokémon faints: KO credit, catch, and who must send out a replacement.
 function faint(b, v, killer) {
   if (v.phase2 && !v.fainted) return secondPhase(b, v, killer);
-  if (v.feud && !v.fainted && ((killer && killer.id === v.feud) || (!killer && v.koBy === v.feud))) return feudRevive(b, v, b.units[v.feud]);
+  if (v.feudPair && !v.fainted) {   // Mission 12: below +6 any KO brings it back; at +6 only the rival's KO does
+    const byRival = !!v.feud && ((killer && killer.id === v.feud) || (!killer && v.koBy === v.feud));
+    if ((v.feudLevel ?? FEUD.final) < FEUD.final || byRival) return feudRevive(b, v, killer || (byRival ? b.units[v.feud] : null));
+  }
   if (v.feud) for (const x of Object.values(b.units)) if (x.feud === v.id) { delete x.feud; blog(b, `With its rival gone, ${x.name} turns on the trainers!`); }
   const bond = v.v?.destinyBond;
   restoreIllusion(b, v); revertForm(b, v);   // it faints as its real self (catches record the real species)
@@ -3619,7 +3628,8 @@ function volChips(b, u) {
   if (v.magnetRise) add(`Magnet Rise ${v.magnetRise}`); if (v.telekinesis) add('Floating'); if (v.smackDown) add('Grounded');
   if (v.aquaRing) add('Aqua Ring'); if (v.stockpile) add(`Stockpile ${v.stockpile}`); if (v.uproar) add('Uproar');
   if (v.transformed) add(`Transformed (${v.transformedInto})`); if (v.destinyBond) add('Destiny Bond'); if (v.glaiveRush) add('Exposed');
-  if (u.feud && !u.fainted) add(`Feuding with ${b.units[u.feud]?.name || 'its rival'}`, 'Only attacks its rival; KO\'d by it, it comes back stronger');
+  if (u.feudPair && !u.fainted) { const left = FEUD.final - (u.feudLevel ?? FEUD.final);
+    add(`${u.feud ? `Feuding with ${b.units[u.feud]?.name || 'its rival'} · ` : ''}+${u.feudLevel ?? FEUD.final} (${left > 0 ? `${left} more KO${left > 1 ? 's' : ''} to go` : 'can be caught'})`, 'Only attacks its rival. Every KO before +6 brings it back stronger; at +6 a trainer KO catches it.'); }
   if (u.feudShield && feudActive(b)) add('Untouchable', 'The trainers can\'t affect it until Zangoose and Seviper are both down');
   if (v.grudge) add('Grudge', 'Until its next turn'); if (v.meFirst) add('Me First ready', 'The first foe to attack it gets hit first by its own move at 1.5×'); if (v.unburden) add('Unburden', 'Speed ×2 until it switches out'); if (v.hosting) add('Commander', `${b.units[v.hosting]?.name || 'Tatsugiri'} is inside: +2 all stats, can't switch`);
   if (u.inside) add(`Inside ${b.units[u.inside]?.name || 'Dondozo'}`, 'Commander: can\'t be targeted and skips its turns');
@@ -4090,7 +4100,7 @@ function missionSetupDM(el, ctx) {
         <div class="statline">${STAT_KEYS.map(k => `<span>${STAT_LABEL[k]} <b>${u.stats[k]}</b></span>`).join('')}</div>
         <label class="field"><span style="font-size:.85rem">Ability</span><select data-ab="${l.final}">${abilityOptions(u.name).map(a => `<option value="${esc(a)}" ${a === u.ability ? 'selected' : ''}>${esc(a)}${abilityStatus(a).auto === 'yes' ? '' : ' (not automated)'}</option>`).join('')}</select></label>
         <div class="abil">${esc(getAbility(u.ability)?.effect || '')} ${abilityTag(u.ability)}</div>
-        ${u.feud ? `<div class="banner warn" style="font-size:.85rem">Rivalry: only attacks ${esc(getLine(u.feud.replace('w_', ''))?.name || 'its rival')}. KO'd by it → full HP, +1 to all five stats, placed next to it. A trainer KO catches it as normal.</div>` : ''}
+        ${u.feud ? `<div class="banner warn" style="font-size:.85rem">Rivalry: starts at +${FEUD.start} to all five stats and only attacks ${esc(getLine(u.feud.replace('w_', ''))?.name || 'its rival')}. Every KO before +${FEUD.final} brings it back at full HP with +1 more (next to its rival). At +${FEUD.final} a trainer KO catches it; a KO by its rival still brings it back.</div>` : ''}
         ${u.feudShield ? `<div class="banner warn" style="font-size:.85rem">Rivalry: the trainers can't affect it until Zangoose and Seviper are both down.</div>` : ''}
         ${u.phase2 ? `<div class="banner warn" style="font-size:.85rem">Finale: when knocked out it comes back as <b>${esc(u.phase2)}</b> (${esc(FINALE.thenAbility)}, same moves, full HP). Only that second KO catches it.</div>` : ''}
         <div class="row" style="gap:6px">${u.moves.map(m => `<span class="pill">${esc(m)}</span>`).join('')}<button class="btn small ghost" data-moves="${l.final}">Edit moves</button></div>
