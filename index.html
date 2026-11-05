@@ -104,6 +104,18 @@ input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .list-row input { flex: 1; }
 /* Map board */
 .board { width: 100%; height: auto; max-height: 72vh; background: var(--surface-2); border-radius: 12px; display: block; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.bgrid { display: flex; flex-direction: column; gap: 14px; }
+.bgrid .bleft, .bgrid .bright { display: contents; }
+.o-field { order: 1; } .o-turn { order: 2; } .o-waits { order: 3; } .o-bench { order: 4; } .o-map { order: 5; } .o-order { order: 6; } .o-meters { order: 7; } .o-last { order: 8; } .o-units { order: 9; } .o-log { order: 10; } .o-dm { order: 11; }
+.o-turn:empty { display: none; }
+@media (min-width: 1000px) {   /* wide screens: two columns */
+  .wrap:has(.bgrid) { max-width: 1680px; }
+  .bgrid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(400px, 1fr); align-items: start; }
+  .bgrid .bleft, .bgrid .bright { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .bgrid .bleft > *, .bgrid .bright > * { order: 0; }   /* columns use the page order: turn panel, log, then the rest */
+  .bgrid .board { max-height: calc(100vh - 150px); }
+  .bgrid .o-units { grid-template-columns: 1fr; }
+}
 .mapbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-size: .9rem; }
 .mapwrap { position: relative; } .mapwrap.windowed { padding: 20px; }
 .mapwrap .offarrow { position: absolute; visibility: hidden; border: none; background: none; color: var(--accent); font-size: 16px; line-height: 1; padding: 0; width: 20px; height: 20px; cursor: pointer; }
@@ -852,11 +864,8 @@ function screenDM(cid) {
     const m = c.mission ?? 0;
     const inits = initialsOf(c.players || []);
     const seg = (opts, cur, attr) => `<div class="seg">${opts.map(([v, l]) => `<button aria-pressed="${v === cur}" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
-    app.innerHTML = `
-      <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)} · DM ${esc(c.dm?.name)}</div><div class="spacer"></div>
-        <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Switch person</button></div>
-      <div class="stack">
-        <div class="card">
+    // Mission number + story: on top normally, below the battle while one is on (Nov 4 2026)
+    const missionTop = `<div class="card">
           <div class="mission-head">
             <div><div class="muted" style="font-weight:600">Mission</div><div class="mission-num">${m}</div></div>
             <div class="spacer"></div>
@@ -864,8 +873,14 @@ function screenDM(cid) {
             <button class="btn primary" id="next" ${m >= 100 ? 'disabled' : ''}>Next mission ▶</button>
           </div>
         </div>
-        <details class="card" id="storyBox" ${(storyOpen ?? mis?.phase !== 'battle') ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>
+        <details class="card" id="storyBox" ${(storyOpen ?? mis?.phase !== 'battle') ? 'open' : ''}><summary><h2 style="display:inline">Story</h2></summary><div class="story" style="margin-top:12px">${storyHTML(m)}</div></details>`;
+    app.innerHTML = `
+      <div class="row" style="margin-bottom:6px"><div class="muted">${esc(c.name)} · DM ${esc(c.dm?.name)}</div><div class="spacer"></div>
+        <button class="btn small ghost" onclick="go('#/c/${cid}/who')">Switch person</button></div>
+      <div class="stack">
+        ${mis?.phase === 'battle' ? '' : missionTop}
         <div id="mapArea"></div>
+        ${mis?.phase === 'battle' ? missionTop : ''}
         <div id="starterArea"></div>
         <div class="grid">
           <div class="card"><h2>Players</h2>${(c.players || []).map(p => `<div class="row" style="margin-bottom:6px"><span class="sw" style="background:${colorOf(c, p.id)}">${esc(inits[p.id])}</span>${esc(p.name)} <span class="muted">· ${(teams[p.id] || []).length} Pokémon</span></div>`).join('')}</div>
@@ -900,7 +915,7 @@ function screenDM(cid) {
     c = camp;
     if (c && (c.mission ?? 0) !== misNum) {        // mission changed: follow the new mission's map
       misUnwatch?.(); misNum = c.mission ?? 0; mis = undefined; sel = null;
-      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { mis = d; drawMapArea(); drawStarters(); });
+      misUnwatch = DB.watchDoc(MISSION(cid, misNum), d => { const was = mis?.phase; mis = d; if ((was === 'battle') !== (d?.phase === 'battle')) return draw(); drawMapArea(); drawStarters(); });   // battle start/end moves the mission header
     }
     draw();
   });
@@ -4528,24 +4543,30 @@ function battleView(el, ctx) {
   const shownWild = units.filter(u => u.side === 'w' && (isDM || u.revealed || u.out));   // players only see wild Pokémon once they've been sent out
   const last = b.last;
   const ft = [fieldText(b), timersText(b), (b.hazards || []).length ? `Hazard tiles: ${(b.hazards || []).length}` : ''].filter(Boolean).join(' · ');
-  el.innerHTML = `<div class="stack">
-    ${ft ? `<div class="fieldbar">${ft}</div>` : ''}
-    ${turnHTML}
-    ${waits.length ? `<div class="card stack">${waits.join('')}</div>` : ''}
-    ${bench.length && !b.over ? `<div class="row"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
-    ${b.noMap ? '' : `${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard" data-view="battle"></svg>`}
-    ${order.length && b.started && !b.over ? `<div class="row orderstrip"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>
-      <div class="meters card">${meterRows}</div>` : ''}
-    ${last ? `<details class="card"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
-    <div class="grid">
+  // Layout (Nov 4 2026): wide screens get two columns — map + turn order on the left, the turn panel, log and the rest on the right.
+  // Narrow screens keep one column in the old order (the two column boxes melt away and CSS "order" sets the sequence).
+  el.innerHTML = `<div class="bgrid">
+   <div class="bleft">
+    ${ft ? `<div class="fieldbar o-field">${ft}</div>` : ''}
+    ${b.noMap ? '' : `<div class="o-map">${hint ? `<div class="hint">${esc(hint)}</div>` : ''}<svg class="board" id="bboard" data-view="battle"></svg></div>`}
+    ${order.length && b.started && !b.over ? `<div class="row orderstrip o-order"><span class="muted">Up next:</span>${order.map((u, i) => `<span class="chip ${i === 0 ? 'on' : ''}"><span class="sw" style="background:${ringOf(u)}"></span>${esc(u.name)}</span>`).join('')}</div>
+      <div class="meters card o-meters">${meterRows}</div>` : ''}
+   </div>
+   <div class="bright">
+    <div class="o-turn">${turnHTML}</div>
+    ${waits.length ? `<div class="card stack o-waits">${waits.join('')}</div>` : ''}
+    ${bench.length && !b.over ? `<div class="row o-bench"><span class="muted">Wild bench:</span>${bench.map(u => `<button class="chip ${BUI.place === u.id ? 'on' : ''}" data-sendout="${u.id}">${monImg(u.name, false, 'spr xs')}Send out ${esc(u.name)}</button>`).join('')}</div>` : ''}
+    <div class="card o-log"><h2>Battle log</h2><div class="log">${logHTML(b)}</div>
+      <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities and moves tagged "Not automated" are applied by hand (DM: tap a Pokémon to edit it).</div></div>
+    ${last ? `<details class="card o-last"><summary><b>${esc(last.who)}</b> used <b>${esc(last.move)}</b> — damage details</summary><div class="muted" style="font-size:.9rem;margin-top:8px">${last.lines.map(esc).join('<br>') || 'No damage roll.'}</div></details>` : ''}
+    <div class="grid o-units">
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Players</h2>${units.filter(u => u.side === 'p').map(unitRow).join('')}</div>
       <div class="card stack" style="--gap:6px"><h2 style="margin:0">Wild</h2>${shownWild.map(unitRow).join('') || '<div class="muted">None revealed yet.</div>'}</div>
     </div>
-    <div class="card"><h2>Battle log</h2><div class="log">${logHTML(b)}</div>
-      <div class="muted" style="font-size:.8rem;margin-top:8px">Abilities and moves tagged "Not automated" are applied by hand (DM: tap a Pokémon to edit it).</div></div>
-    ${isDM ? `<div class="row">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
+    ${isDM ? `<div class="row o-dm">${!b.started ? `<button class="btn primary" data-act="startturns">▶ Start turns</button>` : ''}<div class="spacer"></div>
       <button class="btn small ghost" data-act="restart">↺ Restart mission</button>
       ${b.over ? `<button class="btn primary" data-act="finish">Finish mission ▶</button>` : `<button class="btn small ghost" data-act="endbattle">End battle</button>`}</div>` : ''}
+   </div>
   </div>`;
 
   if (!b.noMap) renderBoard(el.querySelector('#bboard'), {
@@ -5461,7 +5482,7 @@ function ensureWrap(svg) {
   const wrap = document.createElement('div'); wrap.className = 'mapwrap';
   svg.parentNode.insertBefore(wrap, svg); wrap.appendChild(svg);
   for (const d of ['left', 'right', 'up', 'down']) {
-    const a = document.createElement('button'); a.className = 'offarrow ' + d; a.dataset.dir = d; a.setAttribute('aria-label', 'More this way');
+    const a = document.createElement('button'); a.className = 'offarrow ' + d; a.dataset.offdir = d; a.setAttribute('aria-label', 'More this way');
     a.textContent = { left: '◀', right: '▶', up: '▲', down: '▼' }[d]; a.onclick = () => panWindow(svg, d); wrap.appendChild(a);
   }
   return wrap;
@@ -5474,7 +5495,7 @@ function offscreenDirs(o, win, xy) {
 function setOffArrows(svg, dirs) {
   const wrap = svg.parentNode; if (!wrap?.classList?.contains('mapwrap')) return;
   wrap.classList.toggle('windowed', !!svg._win);
-  wrap.querySelectorAll('.offarrow').forEach(a => { a.style.visibility = dirs.has(a.dataset.dir) ? 'visible' : 'hidden'; });
+  wrap.querySelectorAll('.offarrow').forEach(a => { a.style.visibility = dirs.has(a.dataset.offdir) ? 'visible' : 'hidden'; });
 }
 // The View W × H boxes and the pan buttons, under the board (one setting per device, shared by every board)
 function ensureMapBar(wrap, svg) {
