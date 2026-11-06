@@ -257,6 +257,11 @@ table.stats tr.up { background: var(--ok-soft); } table.stats tr.down { backgrou
 .opt.locked { opacity: .5; cursor: not-allowed; }
 .plansum { font-size: .85rem; margin-top: 4px; }
 .pickcard .bst { color: var(--ink); }
+.grades { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+.grade { font-size: .72rem; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--ink); white-space: nowrap; }
+.grade b { font-weight: 800; }
+.grade.g-S { background: #f2c94c; color: #3a2c00; } .grade.g-A { background: #2e9e5b; color: #fff; } .grade.g-B { background: #2f7fd1; color: #fff; }
+.grade.g-C { background: #e8c547; color: #332800; } .grade.g-D { background: #ee8a35; color: #fff; } .grade.g-F { background: #d64545; color: #fff; }
 table.stats td:has(.icon-btn) { white-space: nowrap; }
 table.stats .icon-btn { width: 32px; height: 32px; font-size: 1rem; border-radius: 9px; }
 table.stats .btn.small { min-height: 32px; padding: 0 8px; }
@@ -591,6 +596,8 @@ function monImg(name, shiny, cls = 'spr') {
 }
 // Starter picks go in the order types were claimed during the chase.
 const claimOrder = mis => Object.entries(mis?.found || {}).map(([t, pid]) => ({ tid: +t, pid, at: mis.foundAt?.[t] ?? +t })).sort((a, b) => a.at - b.at).map(({ tid, pid }) => ({ tid, pid }));
+// Starter grades from the Starters tab: late game (final BST), early game (starting BST), overall (both added).
+const gradeChips = g => g ? `<span class="grades">${[['Late', g.late], ['Early', g.early], ['Overall', g.overall]].filter(x => x[1]).map(([l, v]) => `<i class="grade g-${esc(v[0])}">${l} <b>${esc(v)}</b></i>`).join('')}</span>` : '';
 const starterChoices = (c, tid) => startersForType(TYPES[tid - 1]).filter(s => !(c.takenFinals || []).includes(s.final));
 function pickOrderHTML(c, d) {   // numbered list: who picks, from which type, and what they took
   const inits = initialsOf(c.players || []);
@@ -1127,7 +1134,7 @@ function screenPlayer(cid, pid) {
     if (cur && cur.pid === pid) {
       const list = starterChoices(c, cur.tid);
       h += `<div class="yourturn"><div><b>Your pick!</b> Choose a ${TYPES[cur.tid - 1]} starter. It starts at level 1 and is always shiny.</div></div>
-        <div class="pickgrid">${list.map(s => `<button class="pickcard" data-final="${s.final}">${monImg(s.startsAs, true)}<b>${esc(s.startsAs)}</b><small>→ ${esc(s.pick)}</small><small class="bst">Final BST <b>${getPokemon(s.pick)?.total ?? '?'}</b></small>
+        <div class="pickgrid">${list.map(s => `<button class="pickcard" data-final="${s.final}">${monImg(s.startsAs, true)}<b>${esc(s.startsAs)}</b><small>→ ${esc(s.pick)}</small><small class="bst">BST <b>${getPokemon(s.startsAs)?.total ?? '?'}</b> → <b>${getPokemon(s.pick)?.total ?? '?'}</b></small>${gradeChips(s.grades)}
           <span class="types">${(getPokemon(s.startsAs)?.types || []).map(t => `<i class="tchip">${t}</i>`).join('')}</span></button>`).join('')}</div>`;
     } else if (cur) h += `<div class="muted">Waiting for <b>${esc(nameOf(c, cur.pid))}</b> to pick a ${TYPES[cur.tid - 1]} starter.</div>`;
     return h + '</div>';
@@ -1136,11 +1143,12 @@ function screenPlayer(cid, pid) {
     const draftOn = !!mis?.draft?.active;
     if (!team.length) return `<div class="card"><h2>Your team (0)</h2><div class="muted">${mis?.draft ? 'Your starters will appear here as you pick them.' : 'Claim two types in the chase; then you pick a starter from each.'}</div></div>`;
     const canEdit = !draftOn && mis?.phase !== 'battle' && mis?.phase !== 'after', canBox = !draftOn && mis?.phase !== 'battle';
+    const sortBy = rosterSort(), sortFn = sortBy === 'final' ? byFinal : byTotal;
     const boxed = byTotal(team.filter(m => m.boxed && m.step === 'done')), shown = team.filter(m => !m.boxed);
-    return `<div class="card stack"><h2 style="margin:0">Your team (${shown.length})</h2><div class="muted" style="font-size:.85rem">Sorted by total stats.</div>${[...byTotal(shown.filter(m => m.step === 'done')), ...shown.filter(m => m.step !== 'done')].map(m => {
+    return `<div class="card stack"><h2 style="margin:0">Your team (${shown.length})</h2><div class="row" style="gap:8px;align-items:center;font-size:.85rem"><span class="muted">Sort by</span><div class="seg" id="rosterSort"><button aria-pressed="${sortBy === 'now'}" data-rsort="now">Total stats now</button><button aria-pressed="${sortBy === 'final'}" data-rsort="final">Final BST</button></div></div>${[...sortFn(shown.filter(m => m.step === 'done')), ...shown.filter(m => m.step !== 'done')].map(m => {
       const p = getPokemon(m.species);
       return `<div class="moncard">${monImg(m.species, m.shiny)}<div class="stack" style="flex:1;min-width:0">
-        <div><b style="font-size:1.1rem">${esc(m.species)}</b> ${m.shiny ? '<span class="pill">★ Shiny</span>' : ''}<div class="muted" style="font-size:.9rem">Lv ${m.level} · ${(p?.types || []).join(' / ')} · becomes ${esc(m.finalName)}</div></div>
+        <div><b style="font-size:1.1rem">${esc(m.species)}</b> ${m.shiny ? '<span class="pill">★ Shiny</span>' : ''}<div class="muted" style="font-size:.9rem">Lv ${m.level} · ${(p?.types || []).join(' / ')} · becomes ${esc(m.finalName)} (BST ${finalBST(m) || '?'})</div></div>
         ${m.step === 'done' ? `<div style="font-size:.92rem"><div>${esc(m.nature)} (${natureTag(m.nature)}) · ${esc(m.ability)}${m.abilitySlot === 'H' ? ' <span class="pill">Hidden</span>' : ''}</div>
             <div class="statline">${statLine(m)}</div>
             <div class="muted">IVs ${STAT_KEYS.map(k => m.ivs[k]).join(' / ')}${m.evs && STAT_KEYS.some(k => m.evs[k]) ? ` · EVs ${STAT_KEYS.map(k => m.evs[k]).join(' / ')}` : ''}</div><div>${m.moves.map(esc).join(' · ')}</div>
@@ -1203,6 +1211,7 @@ function screenPlayer(cid, pid) {
     app.querySelectorAll('[data-tev]').forEach(x => x.onclick = () => evModal(team.find(m => m.uid === x.dataset.tev), saveMon));
     app.querySelectorAll('[data-tbox]').forEach(x => x.onclick = () => saveMon(x.dataset.tbox, { boxed: true }));
     app.querySelectorAll('[data-unbox]').forEach(x => x.onclick = () => saveMon(x.dataset.unbox, { boxed: false }));
+    app.querySelectorAll('[data-rsort]').forEach(x => x.onclick = () => { setRosterSort(x.dataset.rsort); draw(); });
     app.querySelectorAll('[data-trr]').forEach(x => x.onclick = () => rerollModal(team.find(m => m.uid === x.dataset.trr), saveMon, c.settings?.dice || 'physical', misNum));
     app.querySelectorAll('[data-tmv]').forEach(x => x.onclick = () => movesModal(team.find(m => m.uid === x.dataset.tmv), saveMon));
     app.querySelectorAll('[data-tpl]').forEach(x => x.onclick = () => planModal(team.find(m => m.uid === x.dataset.tpl), saveMon));
@@ -4244,6 +4253,12 @@ function missionSetupDM(el, ctx) {
 const monStats = m => m.ivs ? statsFor(m.species, m.ivs, m.evs || {}, m.level, m.nature) : null;
 const monTotal = m => { const st = monStats(m); return st ? STAT_KEYS.reduce((a, k) => a + st[k], 0) : 0; };
 const byTotal = team => [...team].sort((a, b2) => monTotal(b2) - monTotal(a));
+// Team page sort (this device only): 'now' = real stats at current level, 'final' = base stat total of the final Pokémon.
+const ROSTERSORT_KEY = 'pt-rostersort';
+const rosterSort = () => { try { return localStorage.getItem(ROSTERSORT_KEY) === 'final' ? 'final' : 'now'; } catch { return 'now'; } };
+const setRosterSort = v => { try { localStorage.setItem(ROSTERSORT_KEY, v); } catch {} };
+const finalBST = m => getPokemon(m.finalName)?.total || 0;
+const byFinal = team => [...team].sort((a, b2) => finalBST(b2) - finalBST(a) || monTotal(b2) - monTotal(a));
 const statLine = m => { const st = monStats(m); return st ? `${STAT_KEYS.map(k => `${STAT_LABEL[k]} <b>${st[k]}</b>`).join(' · ')} · <b>Total ${monTotal(m)}</b>` : ''; };
 // Party: this mission's pick, else last mission's party, else the 6 highest totals.
 const partyOf = (setup, pid, team, c) => {

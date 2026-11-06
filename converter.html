@@ -227,7 +227,9 @@ function nextEvolution(final, currentName) {
   const T = table('Starters', ['Type', 'Final', 'Pick (Final Pokémon)', 'Starts As']);
   if (T) {
     const g = (r, c) => T.idx[c] === undefined ? null : r[T.idx[c]];
-    const st = T.rows.map(r => ({ type: clean(g(r, 'Type')), final: numOrText(g(r, 'Final')), pick: clean(g(r, 'Pick (Final Pokémon)')), startsAs: clean(g(r, 'Starts As')) }));
+    // Grades column (optional): "late, early, overall", e.g. "A+, B, A+". Left out when the workbook has no Grades column.
+    const gi = Object.keys(T.idx).find(k => k.trim() === 'Grades'), grades = r => { const v = gi === undefined ? null : clean(r[T.idx[gi]]); if (!v) return null; const [late, early, overall] = v.split(',').map(x => x.trim()); return late ? { late, early, overall } : null; };
+    const st = T.rows.map(r => { const s = { type: clean(g(r, 'Type')), final: numOrText(g(r, 'Final')), pick: clean(g(r, 'Pick (Final Pokémon)')), startsAs: clean(g(r, 'Starts As')) }; const gr = grades(r); if (gr) s.grades = gr; return s; });
     for (const s of st) if (P && (!names.has(s.pick) || !names.has(s.startsAs))) warnings.push(`Starters: "${s.pick}" / "${s.startsAs}" not found in Pokedex`);
     counts.Starters = st.length;
     files['starters.js'] = js(`Starter choices (${st.length})`, 'STARTERS_DATA', st,
